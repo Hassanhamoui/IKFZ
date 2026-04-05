@@ -64,7 +64,7 @@ export default function TrustBadges() {
             const Icon = badge.icon;
             return (
               <motion.div
-                key={index}
+                key={content.title}
                 initial={{ opacity: 0, y: 24 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
