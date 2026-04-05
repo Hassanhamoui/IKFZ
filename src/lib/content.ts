@@ -22,7 +22,7 @@ export const homepageContent = {
     title: 'Auto online anmelden statt Termin bei der Behörde',
     description:
       'Mit unserer Hilfe können Sie Ihr Auto online anmelden, den Antrag digital einreichen und nach erfolgreicher Bearbeitung sofort mit Ihrer PDF-Bestätigung fahren.',
-    badges: ['auto online anmelden', 'KFZ Zulassung online', 'direkter Support'],
+    badges: ['Deutschlandweit', 'Persönlicher Support', 'Schnelle Bestätigung'],
   },
   steps: {
     title: 'Auto online anmelden: So funktioniert es',
@@ -67,7 +67,7 @@ export const homepageContent = {
   requirements: {
     title: 'Was braucht man zum Auto anmelden?',
     subtitle:
-      'Viele suchen nach „was brauche ich zum Auto anmelden" oder „auto anmelden unterlagen". Hier sehen Sie die wichtigsten Punkte auf einen Blick.',
+  'Hier sehen Sie einfach und klar, welche Angaben und Unterlagen für die Online-Zulassung meist wichtig sind.',
     items: [
       'Vollständige Halterdaten für die Anmeldung',
       'Fahrzeugdaten für den digitalen Antrag',
@@ -80,7 +80,7 @@ export const homepageContent = {
   pricing: {
     title: 'Auto anmelden Kosten',
     subtitle:
-      'Sie suchen nach „auto anmelden kosten", „was kostet auto anmelden" oder „kosten beim auto anmelden"? Hier ist die klare Übersicht.',
+  'Hier sehen Sie die wichtigsten Kosten für die Online-Zulassung auf einen Blick – klar, verständlich und ohne versteckte Gebühren.',
     items: [
       'Zulassung ab 119,70 €',
       'Kennzeichen sind nicht im Preis enthalten und müssen separat bestellt werden',
@@ -108,7 +108,7 @@ export const homepageContent = {
     title: 'KFZ online abmelden',
     price: '19,70 €',
     description:
-      'Für kfz online abmelden, kfz abmelden online oder online abmeldung kfz nutzen Sie unser Spezialportal: onlineautoabmelden.com. Jeder kann ein Fahrzeug abmelden. Die Steuerpflicht endet mit der offiziellen Außerbetriebsetzung.',
+  'Für die Online-Abmeldung nutzen Sie unser Spezialportal onlineautoabmelden.com. Dort können Sie Ihr Fahrzeug schnell und einfach digital abmelden. Die Steuerpflicht endet mit der offiziellen Außerbetriebsetzung.',
     link: 'https://onlineautoabmelden.com/',
   },
   guarantee: {
