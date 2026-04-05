@@ -22,7 +22,7 @@ export const homepageContent = {
     title: 'Auto online anmelden statt Termin bei der Behörde',
     description:
       'Mit unserer Hilfe können Sie Ihr Auto online anmelden, den Antrag digital einreichen und nach erfolgreicher Bearbeitung sofort mit Ihrer PDF-Bestätigung fahren.',
-    badges: ['auto online anmelden', 'KFZ Zulassung online', 'direkter Support'],
+    badges: ['Deutschlandweit', 'Persönlicher Support', 'Schnelle Bestätigung'],
   },
   steps: {
     title: 'Auto online anmelden: So funktioniert es',
