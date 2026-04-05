@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Euro, Info, Tag, ArrowRight, Check } from 'lucide-react';
+import { Euro, ArrowRight, Check } from 'lucide-react';
 import Link from 'next/link';
 import { homepageContent } from '@/lib/content';
 import { usePriceFeed } from '@/hooks/usePriceFeed';
