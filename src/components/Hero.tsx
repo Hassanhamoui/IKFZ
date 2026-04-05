@@ -15,7 +15,7 @@ export default function Hero() {
   const { hero } = homepageContent;
 
   return (
-    <section className="relative min-h-[100svh] flex items-center overflow-hidden" style={{ contain: 'layout style paint' }}>
+    <section className="relative flex items-center overflow-hidden py-16 md:py-20 lg:py-24" style={{ contain: 'layout style paint' }}>
       {/* Background layers */}
       <div className="absolute inset-0 bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950" />
 
