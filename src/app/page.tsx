@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import dynamic from 'next/dynamic';
 import Hero from '@/components/Hero';
 import PricingBox from '@/components/PricingBox';
@@ -15,7 +16,21 @@ import { homepageContent } from '@/lib/content';
 import { siteConfig } from '@/lib/config';
 import { getProductBySlug } from '@/lib/db';
 
-export const revalidate = 60;
+export const metadata: Metadata = {
+  title: 'Auto online anmelden ohne Ausweis-PIN & sofort fahren | iKFZ',
+  description:
+    'Auto deutschlandweit online anmelden ab 119,70 €. Offiziell, ohne Termin, ohne Ausweis-PIN und mit schneller Bestätigung. Persönlicher Support. 24/7 möglich.',
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    title: 'Auto online anmelden ohne Ausweis-PIN & sofort fahren | iKFZ',
+    description:
+      'Auto deutschlandweit online anmelden ab 119,70 €. Offiziell, ohne Termin, ohne Ausweis-PIN und mit schneller Bestätigung. Persönlicher Support. 24/7 möglich.',
+    url: '/',
+    type: 'website',
+  },
+};
 
 export default async function HomePage() {
   // Fetch live prices from DB
