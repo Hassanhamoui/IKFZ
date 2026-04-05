@@ -74,7 +74,7 @@ export default function VehicleTypes() {
           transition={{ delay: 0.3 }}
           className="text-center text-dark-400 mt-8 text-[0.95rem]"
         >
-          Auto online anmelden, klare Kosten, einfache Schritte und persönliche Hilfe – bundesweit.
+          Auto online anmelden – deutschlandweit, mit klaren Kosten, einfachen Schritten und persönlicher Hilfe.
         </motion.p>
       </div>
     </section>
