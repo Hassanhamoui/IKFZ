@@ -22,24 +22,11 @@ export const metadata: Metadata = {
     template: '%s | IKFZ Digital Zulassung',
   },
   description: siteConfig.description,
-  keywords: [
-    'KFZ Zulassung online',
-    'Auto online anmelden',
-    'Fahrzeug anmelden online',
-    'KFZ Abmeldung online',
-    'eVB Nummer',
-    'Wunschkennzeichen',
-    'digitale Zulassung',
-    'iKfz',
-    'KBA registriert',
-    'Fahrzeugzulassung',
-  ],
   authors: [{ name: 'IKFZ Digital Zulassung' }],
   creator: 'IKFZ Digital Zulassung',
   openGraph: {
     type: 'website',
     locale: 'de_DE',
-    url: siteConfig.url,
     title: 'KFZ Zulassung online – Auto online anmelden | IKFZ Digital Zulassung',
     description: siteConfig.description,
     siteName: siteConfig.name,
@@ -69,9 +56,6 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
-  alternates: {
-    canonical: siteConfig.url,
-  },
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: '32x32' },
@@ -92,33 +76,36 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const organizationSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: siteConfig.company.name,
+    url: siteConfig.url,
+    // NUR echte Logo-Datei verwenden, kein 1200x630 OG-Banner
+    logo: `${siteConfig.url}/logo.png`,
+    contactPoint: {
+      '@type': 'ContactPoint',
+      telephone: siteConfig.company.phone,
+      contactType: 'customer service',
+      availableLanguage: ['de'],
+      areaServed: 'DE',
+    },
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: 'Gerhard-Küchen-Straße 14',
+      addressLocality: 'Essen',
+      postalCode: '45141',
+      addressCountry: 'DE',
+    },
+  };
+
   return (
     <html lang="de" className={inter.variable} suppressHydrationWarning>
       <head>
-        {/* JSON-LD Organization Schema */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              '@context': 'https://schema.org',
-              '@type': 'Organization',
-              name: siteConfig.company.name,
-              url: siteConfig.url,
-              logo: siteConfig.ogImage,
-              contactPoint: {
-                '@type': 'ContactPoint',
-                telephone: siteConfig.company.phone,
-                contactType: 'customer service',
-                availableLanguage: ['German', 'English'],
-              },
-              address: {
-                '@type': 'PostalAddress',
-                streetAddress: 'Gerhard-Küchen-Straße 14',
-                addressLocality: 'Essen',
-                postalCode: '45141',
-                addressCountry: 'DE',
-              },
-            }),
+            __html: JSON.stringify(organizationSchema),
           }}
         />
       </head>
