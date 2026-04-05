@@ -43,9 +43,9 @@ export default function InfoCards() {
             <div className="w-12 h-12 bg-primary/8 rounded-2xl flex items-center justify-center mb-5">
               <Hash className="w-6 h-6 text-primary" />
             </div>
-            <h2 className="text-xl font-bold text-dark-900 mb-3">
+            <h3 className="text-xl font-bold text-dark-900 mb-3">
               {homepageContent.wunschkennzeichen.title}
-            </h2>
+            </h3>
             <p className="text-dark-400 leading-relaxed mb-4 text-[0.95rem]">
               {homepageContent.wunschkennzeichen.description}
             </p>
