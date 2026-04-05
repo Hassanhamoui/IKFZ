@@ -104,7 +104,7 @@ export default function RootLayout({
               '@type': 'Organization',
               name: siteConfig.company.name,
               url: siteConfig.url,
-              logo: siteConfig.ogImage,
+              logo: `${siteConfig.url}/logo-ikfz.svg`,
               contactPoint: {
                 '@type': 'ContactPoint',
                 telephone: siteConfig.company.phone,
