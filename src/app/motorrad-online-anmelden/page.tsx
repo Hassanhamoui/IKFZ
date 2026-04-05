@@ -6,7 +6,7 @@ import ScrollReveal from '@/components/ScrollReveal';
 import { siteConfig } from '@/lib/config';
 
 export const metadata: Metadata = {
-  title: 'Motorrad Online Anmelden – ab 89,95 €',
+  title: 'Motorrad Online Anmelden – ab 119,75 €',
   description:
     'Motorrad online anmelden – einfach, digital und ohne Stress. Schnell, sicher und offiziell beim KBA registriert. Jetzt in wenigen Minuten erledigen!',
   alternates: {
