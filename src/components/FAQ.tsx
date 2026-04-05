@@ -43,12 +43,15 @@ export default function FAQ({ title, sections, items, singleSection = false }: F
         className="group"
       >
         <button
-          onClick={() => toggle(id)}
-          className={cn(
-            'w-full flex items-center justify-between gap-4 py-5 px-5 text-left rounded-2xl transition-all duration-200',
-            isOpen ? 'bg-primary/[0.04]' : 'hover:bg-dark-50/70'
-          )}
-        >
+  id={`faq-button-${id}`}
+  onClick={() => toggle(id)}
+  aria-expanded={isOpen}
+  aria-controls={`faq-content-${id}`}
+  className={cn(
+    'w-full flex items-center justify-between gap-4 py-5 px-5 text-left rounded-2xl transition-all duration-200',
+    isOpen ? 'bg-primary/[0.04]' : 'hover:bg-dark-50/70'
+  )}
+>
           <span className={cn(
             'text-[0.95rem] font-semibold transition-colors leading-snug',
             isOpen ? 'text-primary' : 'text-dark-800'
@@ -69,12 +72,15 @@ export default function FAQ({ title, sections, items, singleSection = false }: F
         <AnimatePresence>
           {isOpen && (
             <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-              className="overflow-hidden"
-            >
+  id={`faq-content-${id}`}
+  role="region"
+  aria-labelledby={`faq-button-${id}`}
+  initial={{ height: 0, opacity: 0 }}
+  animate={{ height: 'auto', opacity: 1 }}
+  exit={{ height: 0, opacity: 0 }}
+  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+  className="overflow-hidden"
+>
               <div className="px-5 pb-5 text-dark-400 leading-relaxed text-[0.95rem]">
                 {item.answer}
               </div>
