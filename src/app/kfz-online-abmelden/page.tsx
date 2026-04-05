@@ -8,7 +8,7 @@ import { siteConfig } from '@/lib/config';
 export const metadata: Metadata = {
   title: 'KFZ Online Abmelden – Schnell & ohne Behördengang',
   description:
-    'KFZ online abmelden – in wenigen Minuten erledigt. Ohne Termin, ohne Wartezeit. Für nur 24,95 € inkl. Kennzeichenreservierung. Jetzt digital abmelden!',
+    'KFZ online abmelden – in wenigen Minuten erledigt. Ohne Termin, ohne Wartezeit. Für nur 19,75 € Kennzeichenreservierung. Jetzt digital abmelden!',
   alternates: {
     canonical: 'https://ikfzdigitalzulassung.de/kfz-online-abmelden/',
   },
@@ -46,7 +46,7 @@ export default function KfzAbmeldenPage() {
               </div>
               <div className="flex flex-wrap gap-4 items-center">
                 <Link href="/kfz-service/kfz-online-service/" className="btn-primary text-lg">
-                  JETZT KFZ ONLINE ABMELDEN FÜR NUR 24,95 € INKL. AMTLICHER BESTÄTIGUNG! <ArrowRight className="w-5 h-5" />
+                  JETZT KFZ ONLINE ABMELDEN FÜR NUR 19,70 € INKL. AMTLICHER BESTÄTIGUNG! <ArrowRight className="w-5 h-5" />
                 </Link>
               </div>
             </ScrollReveal>
@@ -69,7 +69,7 @@ export default function KfzAbmeldenPage() {
                 { icon: ShieldCheck, title: 'Unkompliziert und sicher', desc: 'Kein mühsames Ausfüllen von Formularen oder Behördengänge.' },
                 { icon: Clock, title: 'Zeit effizient nutzen', desc: 'Erledigen Sie die Abmeldung schnell und stressfrei.' },
                 { icon: Zap, title: 'Kein Warten / Papierkram', desc: 'Sparen Sie sich den Weg zur Zulassungsstelle.' },
-                { icon: CreditCard, title: '24,95 € Fest Preis', desc: 'Transparenter Festpreis ohne versteckte Kosten.' },
+                { icon: CreditCard, title: '19,70 € Fest Preis', desc: 'Transparenter Festpreis ohne versteckte Kosten.' },
               ].map((item, i) => {
                 const Icon = item.icon;
                 return (
