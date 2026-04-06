@@ -393,13 +393,43 @@ function ContentEditor({ item, type, token, onSave, onCancel }: { item: PageData
   const [metaTitle, setMetaTitle] = useState(item?.seo?.metaTitle || "");
   const [metaDesc, setMetaDesc] = useState(item?.seo?.metaDescription || "");
   const [saving, setSaving] = useState(false);
-
+  const [excerpt, setExcerpt] = useState((item as any)?.excerpt || "");
+  const [pageType, setPageType] = useState((item as any)?.pageType || "generic");
+  const [featuredImage, setFeaturedImage] = useState((item as any)?.featuredImage || "");
+  const [canonicalUrl, setCanonicalUrl] = useState(item?.seo?.canonicalUrl || "");
+  const [ogTitle, setOgTitle] = useState(item?.seo?.ogTitle || "");
+  const [ogDescription, setOgDescription] = useState(item?.seo?.ogDescription || "");
+  const [ogImage, setOgImage] = useState(item?.seo?.ogImage || "");        
+  const [robots, setRobots] = useState(item?.seo?.robots || "");
+  const [schemaJson, setSchemaJson] = useState(item?.seo?.schemaJson || "");
   async function handleSave() {
     setSaving(true);
     try {
-      const body: any = { title, slug, content, status };
-      if (item?.id) body.id = item.id;
-      if (metaTitle || metaDesc) { body.seo = { metaTitle, metaDescription: metaDesc }; }
+      const body: any = {
+  title,
+  slug,
+  content,
+  excerpt,
+  status,
+};
+
+if (type === "pages") {
+  body.pageType = pageType;
+  body.featuredImage = featuredImage || null;
+}
+
+if (item?.id) body.id = item.id;
+
+body.seo = {
+  metaTitle,
+  metaDescription: metaDesc,
+  canonicalUrl,
+  ogTitle,
+  ogDescription,
+  ogImage,
+  robots,
+  schemaJson,
+};
       const res = await fetch(`${API}/${type}`, { method: item?.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
       if (!res.ok) throw new Error("Save failed");
       toast("Erfolgreich gespeichert");
@@ -421,28 +451,125 @@ function ContentEditor({ item, type, token, onSave, onCancel }: { item: PageData
         <button onClick={() => setSeoTab(true)} className={`px-4 py-2 rounded-lg text-sm ${seoTab ? "bg-primary text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>SEO</button>
       </div>
       {!seoTab ? (
-        <div className="space-y-4">
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titel" className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none" />
-          <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="Slug" className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none" />
-          <select value={status} onChange={e => setStatus(e.target.value)} className="px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none">
-            <option value="published">Published</option><option value="draft">Draft</option>
-          </select>
-          <textarea value={content} onChange={e => setContent(e.target.value)} rows={20} className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white text-sm font-mono focus:border-primary focus:outline-none" />
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <input value={metaTitle} onChange={e => setMetaTitle(e.target.value)} placeholder="Meta Title" className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none" />
-          <div className="text-xs text-gray-400">{metaTitle.length}/60 Zeichen</div>
-          <textarea value={metaDesc} onChange={e => setMetaDesc(e.target.value)} placeholder="Meta Description" rows={3} className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none" />
-          <div className="text-xs text-gray-400">{metaDesc.length}/160 Zeichen</div>
-          <div className="p-4 rounded-xl bg-white border border-gray-200">
-            <p className="text-xs text-gray-400 mb-2">Google-Vorschau</p>
-            <p className="text-blue-400 text-base">{metaTitle || title || "Titel"}</p>
-            <p className="text-green-400 text-xs">ikfzdigitalzulassung.de/{slug}</p>
-            <p className="text-gray-500 text-sm mt-1">{metaDesc || "Beschreibung..."}</p>
-          </div>
-        </div>
-      )}
+  <div className="space-y-4">
+    <input
+      value={title}
+      onChange={e => setTitle(e.target.value)}
+      placeholder="Titel"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none"
+    />
+
+    <input
+      value={slug}
+      onChange={e => setSlug(e.target.value)}
+      placeholder="Slug"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <textarea
+      value={excerpt}
+      onChange={e => setExcerpt(e.target.value)}
+      placeholder="Kurzbeschreibung / Auszug"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <select
+      value={pageType}
+      onChange={e => setPageType(e.target.value)}
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    >
+      <option value="generic">Generic</option>
+      <option value="city">City</option>
+      <option value="service">Service</option>
+    </select>
+
+    <select
+      value={status}
+      onChange={e => setStatus(e.target.value)}
+      className="px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none"
+    >
+      <option value="published">Published</option>
+      <option value="draft">Draft</option>
+    </select>
+
+    <textarea
+      value={content}
+      onChange={e => setContent(e.target.value)}
+      rows={20}
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white text-sm font-mono focus:border-primary focus:outline-none"
+    />
+  </div>
+) : (
+  <div className="space-y-4">
+    <input
+      value={metaTitle}
+      onChange={e => setMetaTitle(e.target.value)}
+      placeholder="Meta Title"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none"
+    />
+    <div className="text-xs text-gray-400">{metaTitle.length}/60 Zeichen</div>
+
+    <textarea
+      value={metaDesc}
+      onChange={e => setMetaDesc(e.target.value)}
+      placeholder="Meta Description"
+      rows={3}
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-white focus:border-primary focus:outline-none"
+    />
+    <div className="text-xs text-gray-400">{metaDesc.length}/160 Zeichen</div>
+
+    <input
+      value={canonicalUrl}
+      onChange={e => setCanonicalUrl(e.target.value)}
+      placeholder="Canonical URL"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <input
+      value={ogTitle}
+      onChange={e => setOgTitle(e.target.value)}
+      placeholder="OG Title"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <textarea
+      value={ogDescription}
+      onChange={e => setOgDescription(e.target.value)}
+      placeholder="OG Description"
+      rows={3}
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <input
+      value={ogImage}
+      onChange={e => setOgImage(e.target.value)}
+      placeholder="OG Image URL"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <input
+      value={robots}
+      onChange={e => setRobots(e.target.value)}
+      placeholder="robots"
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <textarea
+      value={schemaJson}
+      onChange={e => setSchemaJson(e.target.value)}
+      placeholder="Schema JSON"
+      rows={5}
+      className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm focus:border-primary focus:outline-none"
+    />
+
+    <div className="p-4 rounded-xl bg-white border border-gray-200">
+      <p className="text-xs text-gray-400 mb-2">Google-Vorschau</p>
+      <p className="text-blue-400 text-base">{metaTitle || title || "Titel"}</p>
+      <p className="text-green-400 text-xs">ikfzdigitalzulassung.de/{slug}</p>
+      <p className="text-gray-500 text-sm mt-1">{metaDesc || "Beschreibung..."}</p>
+    </div>
+  </div>
+)}
     </div>
   );
 }
