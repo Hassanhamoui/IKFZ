@@ -49,11 +49,35 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
 
-  // Check pages first
-  const page = await prisma.page.findUnique({ where: { slug } });
-  if (page) return getPageSEO(slug);
+  const page = await prisma.page.findUnique({
+    where: { slug },
+    include: { seo: true },
+  });
 
-  // Blog posts now live at /insiderwissen/{slug}/ — no metadata needed here
+  if (page) {
+    const isCity = isCitySlug(slug) || page.pageType === 'city';
+
+    if (isCity) {
+      const cityName = extractCityName(page.title);
+
+      return {
+        title: `Auto online anmelden in ${cityName} | Ohne Ausweis-PIN | IKFZ`,
+        description: `Auto online anmelden in ${cityName}. Ohne Termin, ohne Ausweis-PIN und mit schneller Bestätigung. Offiziell, deutschlandweit und mit persönlichem Support.`,
+        alternates: {
+          canonical: `${SITE_URL}/${slug}/`,
+        },
+        openGraph: {
+          title: `Auto online anmelden in ${cityName} | Ohne Ausweis-PIN | IKFZ`,
+          description: `Auto online anmelden in ${cityName}. Ohne Termin, ohne Ausweis-PIN und mit schneller Bestätigung. Offiziell, deutschlandweit und mit persönlichem Support.`,
+          url: `${SITE_URL}/${slug}/`,
+          type: 'website',
+        },
+      };
+    }
+
+    return getPageSEO(slug);
+  }
+
   return { title: 'Seite nicht gefunden' };
 }
 
@@ -135,27 +159,28 @@ function CityLandingPage({ cityName, title, content, featuredImage }: { cityName
   return (
     <>
       <CityHero
-        badge={`KFZ Zulassung in ${cityName}`}
-        h1Parts={['KFZ online zulassen', `in ${cityName}`]}
-        subtitle={`Kein Besuch bei der Zulassungsstelle ${cityName} nötig. Alle Fahrzeugtypen – PKW, Motorrad, Anhänger. Offiziell beim KBA registriert.`}
+        badge={`Auto online anmelden in ${cityName}`}
+        h1Parts={['Auto online anmelden', `in ${cityName}`]}
+        subtitle={`Ohne Termin, ohne Ausweis-PIN und mit schneller Bestätigung. Offizieller Online-Service für ${cityName} und ganz Deutschland.`}
+        ctaPrimary={{ label: 'Jetzt Auto online anmelden', href: '/product/auto-online-anmelden/' }}
       />
 
       <CityStatsBar
         items={[
-          { icon: 'Shield', label: 'KBA registriert', desc: 'Offiziell beim Kraftfahrt-Bundesamt' },
-          { icon: 'FileCheck', label: 'Sofort-Bestätigung', desc: '10 Tage gültige Bestätigung' },
-          { icon: 'Clock', label: '24/7 verfügbar', desc: 'Auch am Wochenende' },
-          { icon: 'MapPin', label: cityName, desc: 'Lokaler Service verfügbar' },
+          { icon: 'Shield', label: 'Ohne Ausweis-PIN', desc: 'Einfach online starten' },
+          { icon: 'FileCheck', label: 'Schnelle Bestätigung', desc: 'Direkt nach erfolgreicher Prüfung' },
+          { icon: 'Globe', label: 'Deutschlandweit', desc: 'Für ${cityName} und ganz Deutschland' },
+          { icon: 'Headphones', label: 'Persönlicher Support', desc: 'WhatsApp, Telefon und E-Mail' },
         ]}
       />
 
       <CitySteps
-        title={`Online-Zulassung in ${cityName}`}
-        subtitle="In nur 3 einfachen Schritten zur Zulassung – ohne Wartezeit, ohne Behördengang."
+        title={`So funktioniert die Online-Zulassung in ${cityName}`}
+        subtitle="Einfach, schnell und ohne Termin bei der Zulassungsstelle."
         steps={[
-          { num: '1', title: 'Antrag online ausfüllen', desc: 'Geben Sie Ihre Fahrzeug- und Halterdaten in unser Formular ein – dauert nur wenige Minuten.' },
-          { num: '2', title: 'Dokumente hochladen', desc: 'Laden Sie Fahrzeugschein, Personalausweis und ggf. eVB-Nummer bequem hoch.' },
-          { num: '3', title: 'Bestätigung erhalten', desc: 'Nach Prüfung erhalten Sie Ihre Zulassungsbestätigung direkt per E-Mail.' },
+          { num: '1', title: 'Daten eingeben', desc: 'Geben Sie Ihre Fahrzeug- und Halterdaten online ein. Das dauert nur wenige Minuten.' },
+          { num: '2', title: 'Unterlagen senden', desc: 'Senden Sie die nötigen Angaben und Unterlagen einfach digital an uns.' },
+          { num: '3', title: 'Bestätigung erhalten', desc: 'Nach erfolgreicher Prüfung erhalten Sie Ihre Bestätigung und können direkt weitermachen.' },
         ]}
       />
 
@@ -166,22 +191,21 @@ function CityLandingPage({ cityName, title, content, featuredImage }: { cityName
       />
 
       <CityServices
-        title={`Alle Services für ${cityName}`}
+        title={`Wichtige Links für ${cityName}`}
         services={[
-          { label: 'Auto online anmelden', href: '/product/auto-online-anmelden/', desc: 'PKW-Neuzulassung oder Ummeldung' },
-          { label: 'KFZ online abmelden', href: '/product/fahrzeugabmeldung/', desc: 'Schnelle Außerbetriebsetzung' },
-          { label: 'Motorrad anmelden', href: '/motorrad-online-anmelden/', desc: 'Motorrad-Zulassung online' },
-          { label: 'eVB-Nummer anfordern', href: '/evb/', desc: 'Kostenlose Versicherungsbestätigung' },
-          { label: 'Versicherung berechnen', href: '/kfz-versicherung-berechnen/', desc: 'Günstige Tarife vergleichen' },
-          { label: 'Alle Städte anzeigen', href: '/kfz-zulassung-in-deiner-stadt/', desc: 'Alle Standorte im Überblick' },
+          { label: 'Auto online anmelden', href: '/product/auto-online-anmelden/', desc: 'Online-Zulassung schnell starten' },
+          { label: 'KFZ Online-Service', href: '/kfz-service/kfz-online-service/', desc: 'Digitaler Zulassungsservice' },
+          { label: 'Motorrad online anmelden', href: '/motorrad-online-anmelden/', desc: 'Motorrad digital zulassen' },
+          { label: 'eVB-Nummer anfordern', href: '/evb/', desc: 'Versicherungsbestätigung anfragen' },
+          { label: 'Alle Städte anzeigen', href: '/kfz-zulassung-in-deiner-stadt/', desc: 'Alle Orte im Überblick' },
         ]}
       />
 
       <CityCTA
-        title={`Bereit für Ihre Online-Zulassung in`}
-        highlight={`${cityName}?`}
-        subtitle="Starten Sie jetzt und sparen Sie sich den Weg zur Zulassungsstelle."
-        secondaryCta={{ label: 'eVB-Nummer anfordern', href: '/evb/' }}
+        title="Jetzt Auto online anmelden in"
+        highlight={`${cityName}`}
+        subtitle={`Starten Sie jetzt Ihre Online-Zulassung für ${cityName} – ohne Termin, ohne Ausweis-PIN und mit persönlicher Hilfe.`}
+        primaryCta={{ label: 'Jetzt Auto online anmelden', href: '/product/auto-online-anmelden/' }}
       />
     </>
   );
