@@ -13,6 +13,7 @@ type NavChild = { readonly label: string; readonly href: string };
 type NavItem = { readonly label: string; readonly href: string; readonly children?: readonly NavChild[] };
 
 const navItems = siteConfig.nav as readonly NavItem[];
+const START_CTA_HREF = '/product/auto-online-anmelden/';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -143,13 +144,15 @@ export default function Navbar() {
           )}
 
           {/* Divider */}
-          <div className={cn(
-            'hidden md:block w-px h-6 transition-colors',
-            scrolled ? 'bg-dark-200' : 'bg-white/20'
-          )} />
+          <div
+            className={cn(
+              'hidden md:block w-px h-6 transition-colors',
+              scrolled ? 'bg-dark-200' : 'bg-white/20'
+            )}
+          />
 
           <Link
-            href="/kfz-service/kfz-online-service/"
+            href={START_CTA_HREF}
             className={cn(
               'hidden md:inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300',
               scrolled
@@ -211,6 +214,7 @@ export default function Navbar() {
                         {item.label}
                         <ArrowRight className="w-4 h-4 text-dark-300" />
                       </Link>
+
                       {item.children && (
                         <div className="pl-4 space-y-0.5 mb-2">
                           {item.children.map((child) => (
@@ -252,7 +256,7 @@ export default function Navbar() {
                   </Link>
 
                   <Link
-                    href="/kfz-service/kfz-online-service/"
+                    href={START_CTA_HREF}
                     onClick={() => setIsOpen(false)}
                     className="btn-primary w-full text-center"
                   >
