@@ -1,1107 +1,1315 @@
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useForm, Controller } from 'react-hook-form';
+import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import {
+  CheckCircle,
+  Shield,
+  Lock,
+  AlertCircle,
   Phone,
+  MessageCircle,
+  ShoppingCart,
   ArrowRight,
   ArrowLeft,
-  Check,
   Car,
   FileText,
   CreditCard,
+  Landmark,
+  Package,
   Upload,
   X,
-  HelpCircle,
-  Eye,
+  Info,
+  Camera,
   ChevronDown,
-  AlertTriangle,
-  MessageCircle,
-  Mail,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { FormErrorBanner } from './ui/FormErrorBanner';
+import { LicensePlateInput } from './ui/LicensePlateInput';
 
-// ── Service options ──
-const SERVICE_OPTIONS = [
-  { key: 'wiederzulassung', label: 'Wiederzulassung', price: 99.70 },
-  { key: 'neuwagen', label: 'Neuwagen Zulassung', price: 99.70 },
-  { key: 'ummeldung', label: 'Ummeldung (Halterwechsel)', price: 119.70 },
-  { key: 'neuzulassung', label: 'Neuzulassung (Gebrauchtwagen)', price: 124.70 },
-];
+/* ------------------------------------------------------------------ */
+/*  Zod Schema                                                        */
+/* ------------------------------------------------------------------ */
+const formSchema = z.object({
+  service: z.string().min(1, 'Bitte wählen Sie eine Leistung'),
+  ausweis: z.string().min(1, 'Bitte wählen Sie Ihren Ausweistyp'),
+  evbNummer: z
+    .string()
+    .min(6, 'Bitte geben Sie Ihre eVB-Nummer ein (mind. 6 Zeichen)')
+    .max(12, 'eVB-Nummer darf max. 12 Zeichen haben'),
 
-const AUSWEIS_OPTIONS = [
-  { key: 'personalausweis', label: 'Personalausweis (eID)' },
-  { key: 'aufenthaltstitel', label: 'Aufenthaltstitel (eAT)' },
-  { key: 'reisepass', label: 'Reisepass' },
-];
+  kennzeichenWahl: z.string().min(1, 'Bitte wählen Sie eine Kennzeichen-Option'),
+  wunschkennzeichen: z.string().optional().default(''),
+  kennzeichenPin: z.string().optional().default(''),
+  kennzeichenBestellen: z.enum(['ja', 'nein'], {
+    required_error: 'Bitte wählen Sie eine Option',
+  }),
 
-// ── Document requirements per service / ausweis ──
-interface DocConfig {
-  id: string;
-  label: string;
-  exampleImage?: string;
-}
-
-function getVehicleDocs(service: string): DocConfig[] {
-  switch (service) {
-    case 'neuwagen':
-      return [
-        { id: 'fahrzeugbriefVorne', label: 'Fahrzeugbrief (Teil II) – Vorderseite', exampleImage: '/uploads/2025/02/Fahrzeugbrief-800x800.webp' },
-      ];
-    case 'wiederzulassung':
-      return [
-        { id: 'fahrzeugscheinVorne', label: 'Fahrzeugschein (Teil I) – Vorderseite', exampleImage: '/uploads/2025/02/fahrzeugschein-800x800.webp' },
-        { id: 'fahrzeugscheinHinten', label: 'Fahrzeugschein (Teil I) – Rückseite mit Sicherheitscode' },
-      ];
-    default: // neuzulassung, ummeldung
-      return [
-        { id: 'fahrzeugscheinVorne', label: 'Fahrzeugschein (Teil I) – Vorderseite', exampleImage: '/uploads/2025/02/fahrzeugschein-800x800.webp' },
-        { id: 'fahrzeugscheinHinten', label: 'Fahrzeugschein (Teil I) – Rückseite mit Sicherheitscode' },
-        { id: 'fahrzeugbriefVorne', label: 'Fahrzeugbrief (Teil II) – Vorderseite', exampleImage: '/uploads/2025/02/Fahrzeugbrief-800x800.webp' },
-      ];
-  }
-}
-
-function getVerificationDocs(ausweis: string): DocConfig[] {
-  switch (ausweis) {
-    case 'aufenthaltstitel':
-      return [
-        { id: 'aufenthaltstitelVorne', label: 'Aufenthaltstitel – Vorderseite' },
-        { id: 'aufenthaltstitelHinten', label: 'Aufenthaltstitel – Rückseite' },
-      ];
-    case 'reisepass':
-      return [
-        { id: 'reisepassVorne', label: 'Reisepass – Seite mit Foto' },
-        { id: 'meldebescheinigung', label: 'Meldebescheinigung' },
-      ];
-    default: // personalausweis
-      return [
-        { id: 'personalausweisVorne', label: 'Personalausweis – Vorderseite' },
-        { id: 'personalausweisHinten', label: 'Personalausweis – Rückseite' },
-      ];
-  }
-}
-
-// ── Client-side image compression ──
-async function compressImage(file: File, maxBytes = 3.5 * 1024 * 1024): Promise<File> {
-  if (!file.type.startsWith('image/') || file.size <= maxBytes) return file;
-  const img = new window.Image();
-  const url = URL.createObjectURL(file);
-  await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = url; });
-  URL.revokeObjectURL(url);
-  let quality = 0.85;
-  let scale = 1;
-  for (let i = 0; i < 5; i++) {
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width * scale;
-    canvas.height = img.height * scale;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', quality));
-    if (blob && blob.size <= maxBytes) {
-      return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
-    }
-    quality = Math.max(quality - 0.1, 0.5);
-    scale = Math.max(scale - 0.15, 0.4);
-  }
-  return file;
-}
-
-// ── Zod Schema ──
-const anmeldungSchema = z.object({
-  service: z.string().min(1, 'Bitte wählen Sie einen Service'),
-  ausweis: z.string().min(1, 'Bitte wählen Sie den Ausweistyp'),
-  evbNummer: z.string().min(1, 'eVB-Nummer ist erforderlich'),
-  kennzeichenWahl: z.enum(['zufaellig', 'reserviert']),
-  wunschkennzeichen: z.string().optional(),
-  kennzeichenPin: z.string().optional(),
-  kennzeichenBestellen: z.enum(['ja', 'nein']),
-  kontoinhaber: z.string().min(1, 'Kontoinhaber ist erforderlich'),
-  iban: z.string().min(15, 'Bitte geben Sie eine gültige IBAN ein'),
+  kontoinhaber: z.string().min(2, 'Bitte geben Sie den Kontoinhaber ein'),
+  iban: z
+    .string()
+    .min(15, 'Bitte geben Sie eine gültige IBAN ein')
+    .max(34, 'IBAN darf maximal 34 Zeichen haben'),
 });
 
-type AnmeldungFormData = z.infer<typeof anmeldungSchema>;
+type FormData = z.infer<typeof formSchema>;
 
-const STEPS = [
-  { id: 1, label: 'Service & Ausweis', icon: Car },
-  { id: 2, label: 'Kennzeichen', icon: FileText },
-  { id: 3, label: 'Bankdaten & Upload', icon: CreditCard },
+/* ------------------------------------------------------------------ */
+/*  Styling                                                           */
+/* ------------------------------------------------------------------ */
+const INPUT_CLASS =
+  'w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all text-base bg-white';
+
+const SELECT_CLASS =
+  'w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all text-base bg-white appearance-none cursor-pointer';
+
+/* ------------------------------------------------------------------ */
+/*  Service prices                                                    */
+/* ------------------------------------------------------------------ */
+const DEFAULT_SERVICE_OPTIONS: { value: string; label: string; price: number }[] = [
+  { value: 'neuzulassung', label: 'Anmelden', price: 124.7 },
+  { value: 'ummeldung', label: 'Ummelden', price: 119.7 },
+  { value: 'wiederzulassung', label: 'Wiederzulassung', price: 99.7 },
+  { value: 'neuwagen', label: 'Neuwagen Zulassung', price: 99.7 },
 ];
 
-const STEP_FIELDS: Record<number, (keyof AnmeldungFormData)[]> = {
-  1: ['service', 'ausweis', 'evbNummer'],
-  2: ['kennzeichenWahl', 'kennzeichenBestellen'],
-  3: ['kontoinhaber', 'iban'],
-};
+/* ------------------------------------------------------------------ */
+/*  Step definitions                                                  */
+/* ------------------------------------------------------------------ */
+const FORM_STEPS = [
+  {
+    title: 'Service & Ausweis',
+    description: 'Leistung wählen, eVB eingeben',
+    icon: Car,
+  },
+  {
+    title: 'Kennzeichen',
+    description: 'Wunschkennzeichen & Bestellung',
+    icon: Package,
+  },
+  {
+    title: 'Bankdaten & Kasse',
+    description: 'IBAN für KFZ-Steuer & bezahlen',
+    icon: CreditCard,
+  },
+] as const;
 
-interface DocumentFile {
-  file: File;
-  preview: string;
+/* ------------------------------------------------------------------ */
+/*  Upload field definitions                                          */
+/* ------------------------------------------------------------------ */
+const UPLOAD_FIELDS = [
+  {
+    id: 'fahrzeugscheinVorne',
+    label: 'Fahrzeugschein (Teil I) – Vorderseite',
+    hint: 'Bitte laden Sie die Vorderseite vom Fahrzeugschein vollständig hoch.',
+    exampleImage: '/uploads/2025/02/fahrzeugschein-800x800.webp',
+  },
+  {
+    id: 'fahrzeugscheinHinten',
+    label: 'Fahrzeugschein (Teil I) – Rückseite mit Sicherheitscode',
+    hint: 'Bitte laden Sie die Rückseite vom Fahrzeugschein hoch. Der Sicherheitscode muss gut sichtbar sein.',
+  },
+  {
+    id: 'fahrzeugbriefVorne',
+    label: 'Fahrzeugbrief (Teil II) – Vorderseite',
+    hint: 'Bitte laden Sie die Vorderseite vom Fahrzeugbrief vollständig hoch.',
+    exampleImage: '/uploads/2025/02/Fahrzeugbrief-800x800.webp',
+  },
+  {
+    id: 'personalausweisVorne',
+    label: 'Personalausweis – Vorderseite',
+    hint: 'Bitte laden Sie die Vorderseite Ihres Personalausweises gut leserlich hoch.',
+  },
+  {
+    id: 'personalausweisHinten',
+    label: 'Personalausweis – Rückseite',
+    hint: 'Bitte laden Sie die Rückseite Ihres Personalausweises gut leserlich hoch.',
+  },
+  {
+    id: 'aufenthaltstitelVorne',
+    label: 'Aufenthaltstitel – Vorderseite',
+    hint: 'Bitte laden Sie die Vorderseite Ihres Aufenthaltstitels gut leserlich hoch.',
+  },
+  {
+    id: 'aufenthaltstitelHinten',
+    label: 'Aufenthaltstitel – Rückseite',
+    hint: 'Bitte laden Sie die Rückseite Ihres Aufenthaltstitels gut leserlich hoch.',
+  },
+  {
+    id: 'reisepassVorne',
+    label: 'Reisepass – Seite mit Foto',
+    hint: 'Bitte laden Sie die Seite mit Foto und persönlichen Daten gut leserlich hoch.',
+  },
+  {
+    id: 'meldebescheinigung',
+    label: 'Meldebescheinigung',
+    hint: 'Bitte laden Sie eine aktuelle Meldebescheinigung oder ein behördliches Dokument mit Ihrer Adresse hoch.',
+  },
+] as const;
+
+type UploadField = (typeof UPLOAD_FIELDS)[number];
+type UploadFieldId = UploadField['id'];
+
+const ACCEPTED_FILE_TYPES = 'image/jpeg,image/png,image/webp,application/pdf';
+
+/* ------------------------------------------------------------------ */
+/*  Upload rules                                                      */
+/* ------------------------------------------------------------------ */
+function getVehicleUploadIds(service?: string): UploadFieldId[] {
+  switch (service) {
+    case 'wiederzulassung':
+      return ['fahrzeugscheinVorne', 'fahrzeugscheinHinten'];
+    case 'neuwagen':
+      return ['fahrzeugbriefVorne'];
+    case 'neuzulassung':
+    case 'ummeldung':
+    default:
+      return ['fahrzeugscheinVorne', 'fahrzeugscheinHinten', 'fahrzeugbriefVorne'];
+  }
 }
 
-interface RegistrationFormProps {
-  productName: string;
-  options: {
-    services: { key: string; label: string; price: number }[];
-    kennzeichen_reserviert: { label: string; price: number };
-    kennzeichen_bestellen: { label: string; price: number };
+function getVerificationUploadIds(ausweis?: string): UploadFieldId[] {
+  switch (ausweis) {
+    case 'personalausweis':
+      return ['personalausweisVorne', 'personalausweisHinten'];
+    case 'aufenthaltstitel':
+      return ['aufenthaltstitelVorne', 'aufenthaltstitelHinten'];
+    case 'reisepass':
+      return ['reisepassVorne', 'meldebescheinigung'];
+    default:
+      return [];
+  }
+}
+
+function getUploadFieldById(id: UploadFieldId): UploadField {
+  return UPLOAD_FIELDS.find((field) => field.id === id)!;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Single file upload card component                                 */
+/* ------------------------------------------------------------------ */
+function FileUploadCard({
+  field,
+  file,
+  onFileChange,
+  onRemove,
+  error,
+}: {
+  field: UploadField;
+  file: File | null;
+  onFileChange: (file: File) => void;
+  onRemove: () => void;
+  error?: string;
+}) {
+  const [showExample, setShowExample] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
+
+  const handleFile = (f: File) => {
+    onFileChange(f);
+    if (f.type.startsWith('image/')) {
+      const url = URL.createObjectURL(f);
+      setPreview(url);
+    } else {
+      setPreview(null);
+    }
   };
+
+  return (
+    <>
+      <div
+        className={`relative rounded-xl border-2 border-dashed transition-all ${
+          error
+            ? 'border-red-300 bg-red-50/50'
+            : file
+            ? 'border-green-300 bg-green-50/50'
+            : 'border-gray-200 bg-gray-50/50 hover:border-primary/40 hover:bg-primary/5'
+        }`}
+      >
+        <div className="flex items-start justify-between px-4 pt-4 pb-2">
+          <label className="block text-sm font-bold text-gray-700 leading-snug pr-2">
+            {field.label} <span className="text-red-500">*</span>
+          </label>
+
+          {field.exampleImage ? (
+            <button
+              type="button"
+              onClick={() => setShowExample(true)}
+              className="shrink-0 w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 transition-colors"
+              title="Beispielbild anzeigen"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+          ) : null}
+        </div>
+
+        <p className="px-4 text-xs text-gray-400 mb-3 leading-relaxed">{field.hint}</p>
+
+        {!file ? (
+          <label className="flex flex-col items-center gap-2 px-4 pb-5 cursor-pointer">
+            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+              <Camera className="w-6 h-6 text-primary" />
+            </div>
+            <span className="text-sm font-semibold text-primary">
+              Foto aufnehmen oder Datei wählen
+            </span>
+            <span className="text-xs text-gray-400">JPG, PNG, WebP oder PDF · max. 10 MB</span>
+            <input
+              type="file"
+              accept={ACCEPTED_FILE_TYPES}
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFile(f);
+              }}
+            />
+          </label>
+        ) : (
+          <div className="px-4 pb-4">
+            <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-3">
+              {preview ? (
+                <img
+                  src={preview}
+                  alt="Vorschau"
+                  className="w-16 h-16 object-cover rounded-lg shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
+                  <FileText className="w-6 h-6 text-primary" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
+                <p className="text-xs text-gray-400">
+                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onRemove}
+                className="shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 mt-2 text-xs text-green-600 font-medium">
+              <CheckCircle className="w-3.5 h-3.5" />
+              Datei hochgeladen
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <p className="px-4 pb-3 text-red-500 text-xs flex items-center gap-1">
+            <AlertCircle className="w-3.5 h-3.5" />
+            {error}
+          </p>
+        )}
+      </div>
+
+      {showExample && field.exampleImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          onClick={() => setShowExample(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="font-bold text-gray-900 text-sm">{field.label}</h3>
+              <button
+                type="button"
+                onClick={() => setShowExample(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <img
+                src={field.exampleImage}
+                alt={`Beispiel: ${field.label}`}
+                className="w-full rounded-xl"
+              />
+              <p className="text-xs text-gray-500 mt-3 text-center">{field.hint}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Client-side image compression                                     */
+/* ------------------------------------------------------------------ */
+const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+
+function compressImageOnce(
+  img: HTMLImageElement,
+  maxDim: number,
+  quality: number,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    let { width, height } = img;
+
+    if (width > maxDim || height > maxDim) {
+      const ratio = Math.min(maxDim / width, maxDim / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return reject(new Error('Canvas not supported'));
+
+    ctx.drawImage(img, 0, 0, width, height);
+
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('Komprimierung fehlgeschlagen'))),
+      'image/jpeg',
+      quality,
+    );
+  });
+}
+
+async function compressImage(file: File): Promise<Blob> {
+  if (file.size <= MAX_UPLOAD_BYTES || !file.type.startsWith('image/')) {
+    return file;
+  }
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new window.Image();
+    const url = URL.createObjectURL(file);
+
+    i.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(i);
+    };
+
+    i.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Bild konnte nicht geladen werden'));
+    };
+
+    i.src = url;
+  });
+
+  const attempts: [number, number][] = [
+    [1600, 0.7],
+    [1200, 0.6],
+    [1000, 0.5],
+    [800, 0.4],
+    [600, 0.3],
+  ];
+
+  for (const [maxDim, quality] of attempts) {
+    const blob = await compressImageOnce(img, maxDim, quality);
+    if (blob.size <= MAX_UPLOAD_BYTES) {
+      return blob;
+    }
+  }
+
+  return compressImageOnce(img, 400, 0.2);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Props                                                             */
+/* ------------------------------------------------------------------ */
+interface RegistrationFormProps {
+  productName?: string;
+  options?: {
+    services?: { key: string; label: string; price: number }[];
+    kennzeichen_reserviert?: { label: string; price: number };
+    kennzeichen_bestellen?: { label: string; price: number };
+  };
+  contactPhone?: string;
+  contactPhoneLink?: string;
+  contactWhatsapp?: string;
+  contactEmail?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                         */
+/* ------------------------------------------------------------------ */
 export default function RegistrationForm({
   productName = 'Auto Online Anmelden / Ummelden',
   options,
-}: RegistrationFormProps) {
+  contactPhone = '01522 4999190',
+  contactPhoneLink = 'tel:015224999190',
+  contactWhatsapp = 'https://wa.me/4915224999190',
+  contactEmail = 'info@ikfzdigitalzulassung.de',
+}: RegistrationFormProps = {}) {
+  const SERVICE_OPTIONS =
+    options?.services?.map((item) => ({
+      value: item.key,
+      label: item.label,
+      price: item.price,
+    })) ?? DEFAULT_SERVICE_OPTIONS;
+
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState(1);
+
+  const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+  const formTopRef = useRef<HTMLDivElement>(null);
 
-  // Document uploads — dynamic keys
-  const [documents, setDocuments] = useState<Record<string, DocumentFile | null>>({});
-  const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
-  const [exampleModal, setExampleModal] = useState<string | null>(null);
-  const [showWichtig, setShowWichtig] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<Record<UploadFieldId, File | null>>({
+    fahrzeugscheinVorne: null,
+    fahrzeugscheinHinten: null,
+    fahrzeugbriefVorne: null,
+    personalausweisVorne: null,
+    personalausweisHinten: null,
+    aufenthaltstitelVorne: null,
+    aufenthaltstitelHinten: null,
+    reisepassVorne: null,
+    meldebescheinigung: null,
+  });
 
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
-  const services = options?.services ?? SERVICE_OPTIONS;
-  const reserviertPrice = options?.kennzeichen_reserviert?.price ?? 24.70;
-  const bestellenPrice = options?.kennzeichen_bestellen?.price ?? 29.70;
+  const [uploadErrors, setUploadErrors] = useState<Partial<Record<UploadFieldId, string>>>({});
 
   const {
     register,
     handleSubmit,
     watch,
     trigger,
+    setError,
+    clearErrors,
+    setValue,
     formState: { errors },
-  } = useForm<AnmeldungFormData>({
-    resolver: zodResolver(anmeldungSchema),
+  } = useForm<FormData>({
+    resolver: zodResolver(formSchema),
     defaultValues: {
       service: '',
       ausweis: '',
-      kennzeichenWahl: 'zufaellig',
+      evbNummer: '',
+      kennzeichenWahl: '',
+      wunschkennzeichen: '',
+      kennzeichenPin: '',
       kennzeichenBestellen: 'nein',
+      kontoinhaber: '',
+      iban: '',
     },
   });
 
-  const watchService = watch('service');
-  const watchKennzeichenWahl = watch('kennzeichenWahl');
-  const watchKennzeichenBestellen = watch('kennzeichenBestellen');
+  const kennzeichenWahl = watch('kennzeichenWahl');
+  const kennzeichenBestellen = watch('kennzeichenBestellen');
+  const selectedService = watch('service');
+  const selectedAusweis = watch('ausweis');
 
-  const selectedServicePrice = useMemo(() => {
-    const found = services.find((s) => s.key === watchService);
-    return found?.price ?? 0;
-  }, [services, watchService]);
+  const serviceOption = SERVICE_OPTIONS.find((o) => o.value === selectedService);
+  const basePrice = serviceOption?.price ?? 0;
+  const kReserviertUnit = options?.kennzeichen_reserviert?.price ?? 24.7;
+  const kBestellenUnit = options?.kennzeichen_bestellen?.price ?? 29.7;
+  const kennzeichenReservierung = kennzeichenWahl === 'reserviert' ? kReserviertUnit : 0;
+  const kennzeichenBestellung = kennzeichenBestellen === 'ja' ? kBestellenUnit : 0;
+  const totalPrice = basePrice + kennzeichenReservierung + kennzeichenBestellung;
+  const fmtPrice = (n: number) => n.toFixed(2).replace('.', ',');
 
-  const totalPrice = useMemo(() => {
-    let price = selectedServicePrice;
-    if (watchKennzeichenWahl === 'reserviert') price += reserviertPrice;
-    if (watchKennzeichenBestellen === 'ja') price += bestellenPrice;
-    return price;
-  }, [selectedServicePrice, watchKennzeichenWahl, watchKennzeichenBestellen, reserviertPrice, bestellenPrice]);
+  const vehicleUploadIds = getVehicleUploadIds(selectedService);
+  const verificationUploadIds = getVerificationUploadIds(selectedAusweis);
 
-  // ── File handling ──
-  const handleFileChange = useCallback(
-    (key: string, e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
+  const stepFields: (keyof FormData)[][] = [
+    ['service', 'ausweis', 'evbNummer'],
+    ['kennzeichenWahl', 'kennzeichenBestellen'],
+    ['kontoinhaber', 'iban'],
+  ];
 
-      // Validate file type and size (max 10MB)
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-      if (!allowedTypes.includes(file.type)) {
-        setUploadErrors((prev) => ({
-          ...prev,
-          [key]: 'Nur JPG, PNG, WebP oder PDF erlaubt',
-        }));
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        setUploadErrors((prev) => ({
-          ...prev,
-          [key]: 'Datei darf maximal 10 MB sein',
-        }));
-        return;
-      }
+  const nextStep = async () => {
+    const valid = await trigger(stepFields[currentStep]);
+    if (!valid) return;
 
-      setUploadErrors((prev) => {
-        const copy = { ...prev };
-        delete copy[key];
-        return copy;
-      });
+    if (currentStep === 1 && kennzeichenWahl === 'reserviert') {
+      const wk = watch('wunschkennzeichen') || '';
+      const pin = watch('kennzeichenPin') || '';
+      let hasError = false;
 
-      const preview = file.type.startsWith('image/')
-        ? URL.createObjectURL(file)
-        : '';
+      clearErrors('wunschkennzeichen');
+      clearErrors('kennzeichenPin');
 
-      setDocuments((prev) => ({ ...prev, [key]: { file, preview } }));
-    },
-    []
-  );
-
-  const removeFile = useCallback(
-    (key: string) => {
-      if (documents[key]?.preview) {
-        URL.revokeObjectURL(documents[key]!.preview);
-      }
-      setDocuments((prev) => ({ ...prev, [key]: null }));
-    },
-    [documents]
-  );
-
-  const nextStep = useCallback(async () => {
-    const fields = STEP_FIELDS[currentStep];
-    if (fields.length > 0) {
-      const valid = await trigger(fields);
-      if (!valid) return;
-    }
-    setCurrentStep((s) => Math.min(s + 1, 3));
-  }, [currentStep, trigger]);
-
-  const prevStep = useCallback(() => {
-    setCurrentStep((s) => Math.max(s - 1, 1));
-  }, []);
-
-  const onSubmit = useCallback(
-    async (data: AnmeldungFormData) => {
-      // Determine required docs
-      const vehicleDocs = getVehicleDocs(data.service);
-      const verifyDocs = getVerificationDocs(data.ausweis);
-      const allRequired = [...vehicleDocs, ...verifyDocs];
-
-      // Validate all required documents are uploaded
-      const newErrors: Record<string, string> = {};
-      for (const doc of allRequired) {
-        if (!documents[doc.id]) {
-          newErrors[doc.id] = `Bitte ${doc.label} hochladen`;
-        }
-      }
-      if (Object.keys(newErrors).length > 0) {
-        setUploadErrors(newErrors);
-        return;
-      }
-
-      setIsSubmitting(true);
-
-      try {
-        // Compress & upload documents
-        const formData = new FormData();
-        for (const doc of allRequired) {
-          const docFile = documents[doc.id]!.file;
-          const compressed = await compressImage(docFile);
-          formData.append(doc.id, compressed);
-        }
-
-        const uploadRes = await fetch('/api/upload/documents/', {
-          method: 'POST',
-          body: formData,
+      if (wk.length < 3) {
+        setError('wunschkennzeichen', {
+          type: 'manual',
+          message: 'Bitte Ihr Wunschkennzeichen eingeben (mind. 3 Zeichen)',
         });
-
-        let uploadedFiles: Record<string, string> = {};
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json();
-          uploadedFiles = uploadData.files ?? {};
-        }
-
-        // Build addons
-        const addons: { key: string; label: string; price: number }[] = [];
-        if (data.kennzeichenWahl === 'reserviert') {
-          addons.push({
-            key: 'kennzeichen_reserviert',
-            label: options?.kennzeichen_reserviert?.label ?? 'Reserviertes Wunschkennzeichen',
-            price: reserviertPrice,
-          });
-        }
-        if (data.kennzeichenBestellen === 'ja') {
-          addons.push({
-            key: 'kennzeichen_bestellen',
-            label: options?.kennzeichen_bestellen?.label ?? 'Kennzeichen bestellen & liefern',
-            price: bestellenPrice,
-          });
-        }
-
-        const selectedService = services.find((s) => s.key === data.service);
-
-        const orderData = {
-          productName,
-          productSlug: 'auto-online-anmelden',
-          serviceType: 'anmeldung',
-          formData: {
-            ...data,
-            uploadedFiles,
-          },
-          selectedService: selectedService?.label,
-          basePrice: selectedServicePrice,
-          addons,
-          total: totalPrice,
-        };
-        sessionStorage.setItem('checkout_order', JSON.stringify(orderData));
-        router.push('/rechnung/');
-      } catch {
-        setIsSubmitting(false);
+        hasError = true;
       }
-    },
-    [documents, services, productName, selectedServicePrice, totalPrice, router, options, reserviertPrice, bestellenPrice]
-  );
 
-  // ── Document upload card component ──
-  const DocumentUpload = ({
-    label,
-    docKey,
-    exampleImage,
-  }: {
-    label: string;
-    docKey: string;
-    exampleImage?: string;
-  }) => (
-    <div className="rounded-xl border border-dark-100 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <label className="text-sm font-semibold text-dark-800">
-          {label} <span className="text-red-500">*</span>
-        </label>
-        {exampleImage && (
-          <button
-            type="button"
-            onClick={() => setExampleModal(exampleImage)}
-            className="text-xs text-primary font-medium flex items-center gap-1 hover:underline"
-          >
-            <Eye className="w-3 h-3" /> Beispiel
-          </button>
-        )}
-      </div>
+      if (pin.length < 4) {
+        setError('kennzeichenPin', {
+          type: 'manual',
+          message: 'Bitte die PIN der Reservierung eingeben (mind. 4 Zeichen)',
+        });
+        hasError = true;
+      }
 
-      {documents[docKey] ? (
-        <div className="flex items-center gap-3 p-3 bg-primary/[0.04] rounded-xl border border-primary/10">
-          {documents[docKey]!.preview ? (
-            <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-dark-200">
-              <Image
-                src={documents[docKey]!.preview}
-                alt={label}
-                fill
-                className="object-cover"
-              />
-            </div>
-          ) : (
-            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-              <FileText className="w-5 h-5 text-primary" />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-dark-800 font-medium truncate">
-              {documents[docKey]!.file.name}
-            </p>
-            <p className="text-xs text-dark-400">
-              {(documents[docKey]!.file.size / 1024).toFixed(0)} KB
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => removeFile(docKey)}
-            className="p-1.5 rounded-full hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => fileInputRefs.current[docKey]?.click()}
-          className="w-full p-6 border-2 border-dashed border-dark-200 rounded-xl hover:border-primary/40 hover:bg-primary/[0.02] transition-all flex flex-col items-center gap-2"
-        >
-          <Upload className="w-6 h-6 text-dark-400" />
-          <span className="text-sm text-dark-500">
-            Foto aufnehmen oder Datei wählen
-          </span>
-          <span className="text-xs text-dark-400">
-            JPG, PNG, WebP oder PDF (max. 10 MB)
-          </span>
-        </button>
-      )}
-      <input
-        ref={(el) => { fileInputRefs.current[docKey] = el; }}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,application/pdf"
-        onChange={(e) => handleFileChange(docKey, e)}
-        className="hidden"
-      />
-      {uploadErrors[docKey] && (
-        <p className="text-red-500 text-xs mt-1">{uploadErrors[docKey]}</p>
-      )}
-    </div>
-  );
+      if (hasError) return;
+    }
+
+    if (currentStep < FORM_STEPS.length - 1) {
+      setCurrentStep((s) => s + 1);
+      setTimeout(() => {
+        formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
+  };
+
+  const prevStep = () => {
+    if (currentStep > 0) setCurrentStep((s) => s - 1);
+  };
+
+  const onSubmit = async (data: FormData) => {
+    const newUploadErrors: Partial<Record<UploadFieldId, string>> = {};
+    const requiredUploadIds = [
+      ...getVehicleUploadIds(data.service),
+      ...getVerificationUploadIds(data.ausweis),
+    ];
+
+    for (const id of requiredUploadIds) {
+      if (!uploadedFiles[id]) {
+        const field = getUploadFieldById(id);
+        newUploadErrors[id] = `Bitte ${field.label} hochladen`;
+      }
+    }
+
+    if (Object.keys(newUploadErrors).length > 0) {
+      setUploadErrors(newUploadErrors);
+      return;
+    }
+
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    setFormError(null);
+
+    try {
+      const fileInfo: Record<string, { name: string; size: number; type: string; url: string }> =
+        {};
+
+      for (const id of requiredUploadIds) {
+        const file = uploadedFiles[id];
+        if (!file) continue;
+
+        try {
+          let fileToUpload: File | Blob = file;
+          let fileName = file.name;
+
+          if (file.type.startsWith('image/')) {
+            fileToUpload = await compressImage(file);
+            fileName = fileName.replace(/\.(png|bmp|webp|tiff?)$/i, '.jpg');
+            if (!fileName.match(/\.jpe?g$/i)) fileName += '.jpg';
+          }
+
+          const uploadFormData = new FormData();
+          uploadFormData.append('file', fileToUpload, fileName);
+          uploadFormData.append('fieldName', id);
+
+          const res = await fetch('/api/upload/documents', {
+            method: 'POST',
+            body: uploadFormData,
+          });
+
+          if (!res.ok) {
+            const errBody = await res.json().catch(() => ({ error: 'Upload fehlgeschlagen' }));
+            throw new Error(errBody.error || `Upload fehlgeschlagen (${res.status})`);
+          }
+
+          const result = await res.json();
+          const uploaded = result.files?.[0];
+
+          if (!uploaded?.url) {
+            throw new Error('Keine URL vom Upload erhalten');
+          }
+
+          fileInfo[id] = {
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            url: uploaded.url,
+          };
+        } catch (uploadErr) {
+          const errMsg = uploadErr instanceof Error ? uploadErr.message : 'Upload fehlgeschlagen';
+          setUploadErrors((prev) => ({ ...prev, [id]: errMsg }));
+          setFormError(`Upload fehlgeschlagen: ${errMsg}`);
+          setIsSubmitting(false);
+          submittingRef.current = false;
+          return;
+        }
+      }
+
+      const selectedOption = SERVICE_OPTIONS.find((o) => o.value === data.service);
+      const kReservierung = data.kennzeichenWahl === 'reserviert' ? kReserviertUnit : 0;
+      const kBestellung = data.kennzeichenBestellen === 'ja' ? kBestellenUnit : 0;
+      const computedPrice = (selectedOption?.price ?? 0) + kReservierung + kBestellung;
+
+      const addons: { key: string; label: string; price: number }[] = [];
+
+      if (data.kennzeichenWahl === 'reserviert') {
+        addons.push({
+          key: 'kennzeichen_reserviert',
+          label:
+            options?.kennzeichen_reserviert?.label ?? 'Reserviertes Wunschkennzeichen',
+          price: kReserviertUnit,
+        });
+      }
+
+      if (data.kennzeichenBestellen === 'ja') {
+        addons.push({
+          key: 'kennzeichen_bestellen',
+          label:
+            options?.kennzeichen_bestellen?.label ?? 'Kennzeichen bestellen & liefern',
+          price: kBestellenUnit,
+        });
+      }
+
+      const checkoutOrder = {
+        productName,
+        productSlug: 'auto-online-anmelden',
+        serviceType: 'anmeldung',
+        formData: {
+          ...data,
+          uploadedFiles: fileInfo,
+        },
+        selectedService: selectedOption?.label || data.service,
+        basePrice: selectedOption?.price ?? 0,
+        addons,
+        total: computedPrice,
+      };
+
+      const legacyServiceData = {
+        formType: 'autoanmeldung',
+        productId: 'anmeldung',
+        productPrice: computedPrice.toFixed(2),
+        service: data.service,
+        serviceLabel: selectedOption?.label || data.service,
+        ausweis: data.ausweis,
+        evbNummer: data.evbNummer,
+        kennzeichenWahl: data.kennzeichenWahl,
+        wunschkennzeichen: data.wunschkennzeichen || '',
+        kennzeichenPin: data.kennzeichenPin || '',
+        kennzeichenBestellen: data.kennzeichenBestellen,
+        kontoinhaber: data.kontoinhaber,
+        iban: data.iban,
+        uploadedFiles: fileInfo,
+      };
+
+      sessionStorage.setItem('checkout_order', JSON.stringify(checkoutOrder));
+      sessionStorage.setItem('serviceData', JSON.stringify(legacyServiceData));
+
+      router.push('/rechnung/');
+    } catch (err) {
+      console.error('Submit error:', err);
+      setFormError('Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
+      setIsSubmitting(false);
+      submittingRef.current = false;
+    }
+  };
 
   return (
-    <div className="bg-white">
-      {/* Help Banner */}
-      <div className="flex items-center gap-3 rounded-2xl p-4 mb-8 bg-primary/[0.04] border border-primary/10">
-        <Phone className="w-5 h-5 text-primary flex-shrink-0" />
-        <span className="text-sm text-dark-600">
-          Benötigen Sie Hilfe? Rufen Sie uns an:{' '}
-          <a
-            href="tel:015224999190"
-            className="font-bold text-primary hover:underline"
-          >
-            ℡ 01522 4999190
-          </a>
-        </span>
-      </div>
-
-      {/* ── Stepper ── */}
-      <div className="mb-10">
-        <div className="flex items-center justify-between">
-          {STEPS.map((step, i) => {
-            const Icon = step.icon;
-            const isCompleted = currentStep > step.id;
-            const isActive = currentStep === step.id;
-            return (
-              <div
-                key={step.id}
-                className="flex items-center flex-1 last:flex-initial"
-              >
-                <div className="flex flex-col items-center">
-                  <div
-                    className={cn(
-                      'w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-300 text-sm font-bold',
-                      isCompleted
-                        ? 'bg-primary text-white shadow-[0_4px_12px_rgba(0,168,90,0.3)]'
-                        : isActive
-                        ? 'bg-primary text-white shadow-[0_4px_16px_rgba(0,168,90,0.35)] ring-4 ring-primary/20'
-                        : 'bg-dark-50 text-dark-400 border border-dark-200'
-                    )}
-                  >
-                    {isCompleted ? (
-                      <Check className="w-5 h-5" />
-                    ) : (
-                      <Icon className="w-5 h-5" />
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      'text-[10px] md:text-xs font-medium mt-2 transition-colors',
-                      isActive
-                        ? 'text-primary'
-                        : isCompleted
-                        ? 'text-dark-600'
-                        : 'text-dark-400'
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className="flex-1 mx-2 md:mx-3 h-0.5 rounded-full mt-[-18px] md:mt-[-20px]">
-                    <div
-                      className={cn(
-                        'h-full rounded-full transition-all duration-500',
-                        isCompleted ? 'bg-primary' : 'bg-dark-100'
-                      )}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+    <div
+      ref={formTopRef}
+      className="max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500"
+    >
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        className="bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden"
+      >
+        <div className="bg-gradient-to-r from-primary to-primary-700 px-6 md:px-10 py-6 text-white">
+          <h2 className="text-xl md:text-2xl font-extrabold">
+            Jetzt Formular ausfüllen – wir schalten Ihr Fahrzeug gleich frei
+          </h2>
+          <p className="text-white/80 text-sm mt-1">
+            Live-Support: Persönliche Hilfe per Chat während des Ausfüllens
+          </p>
         </div>
-      </div>
 
-      {/* ── Step Content ── */}
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentStep}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.25 }}
-          >
-            {/* ── STEP 1: Service & Ausweis ── */}
-            {currentStep === 1 && (
-              <div className="space-y-6">
-                <div className="mb-2">
-                  <h2 className="text-2xl font-bold text-dark-900">
-                    Service & Ausweistyp
-                  </h2>
-                  <p className="text-dark-500 text-sm mt-1">
-                    Wählen Sie den gewünschten Service und Ihren Ausweistyp.
-                  </p>
-                </div>
+        <div className="px-4 md:px-10 pt-8 pb-2">
+          <div className="flex items-center justify-between">
+            {FORM_STEPS.map((step, index) => {
+              const StepIcon = step.icon;
+              const isActive = index === currentStep;
+              const isDone = index < currentStep;
 
-                {/* Service selection */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6">
-                  <label className="block text-sm font-semibold text-dark-800 mb-3">
-                    Gewünschter Service{' '}
-                    <span className="text-red-500">*</span>
-                  </label>
-                  <div className="space-y-3">
-                    {services.map((opt) => (
-                      <label
-                        key={opt.key}
-                        className={cn(
-                          'flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all duration-200',
-                          watchService === opt.key
-                            ? 'border-primary bg-primary/[0.04] shadow-sm'
-                            : 'border-dark-100 hover:border-dark-200 hover:bg-dark-50/50'
-                        )}
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="radio"
-                            value={opt.key}
-                            {...register('service')}
-                            className="accent-primary w-4 h-4"
-                          />
-                          <span className="font-semibold text-dark-800 text-sm">
-                            {opt.label}
-                          </span>
-                        </div>
-                        <span className="text-primary font-bold text-sm whitespace-nowrap ml-3">
-                          {opt.price.toFixed(2).replace('.', ',')} €
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  {errors.service && (
-                    <p className="text-red-500 text-sm mt-2">
-                      {errors.service.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Ausweis selection */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6">
-                  <label className="block text-sm font-semibold text-dark-800 mb-3">
-                    Ausweistyp{' '}
-                    <span className="text-red-500">*</span>
-                  </label>
-                  <div className="space-y-3">
-                    {AUSWEIS_OPTIONS.map((opt) => (
-                      <label
-                        key={opt.key}
-                        className={cn(
-                          'flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-200',
-                          watch('ausweis') === opt.key
-                            ? 'border-primary bg-primary/[0.04] shadow-sm'
-                            : 'border-dark-100 hover:border-dark-200 hover:bg-dark-50/50'
-                        )}
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="radio"
-                            value={opt.key}
-                            {...register('ausweis')}
-                            className="accent-primary w-4 h-4"
-                          />
-                          <span className="font-medium text-dark-700 text-sm">
-                            {opt.label}
-                          </span>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  {errors.ausweis && (
-                    <p className="text-red-500 text-sm mt-2">
-                      {errors.ausweis.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* eVB-Nummer */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6">
-                  <label className="block text-sm font-semibold text-dark-800 mb-2">
-                    eVB-Nummer{' '}
-                    <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    {...register('evbNummer')}
-                    placeholder="z.B. A123B456C"
-                    className={cn(
-                      'input-field uppercase',
-                      errors.evbNummer &&
-                        'border-red-400 focus:ring-red-400 focus:border-red-400'
-                    )}
-                  />
-                  {errors.evbNummer && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {errors.evbNummer.message}
-                    </p>
-                  )}
-                  <p className="text-xs text-dark-400 mt-2">
-                    Die elektronische Versicherungsbestätigung erhalten Sie von
-                    Ihrer Kfz-Versicherung.{' '}
-                    <a
-                      href="/evb/"
-                      className="text-primary hover:underline"
-                    >
-                      Noch keine eVB?
-                    </a>
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* ── STEP 2: Kennzeichen ── */}
-            {currentStep === 2 && (
-              <div className="space-y-6">
-                <div className="mb-2">
-                  <h2 className="text-2xl font-bold text-dark-900">
-                    Kennzeichen
-                  </h2>
-                  <p className="text-dark-500 text-sm mt-1">
-                    Wählen Sie aus, ob Sie ein zufälliges oder reserviertes
-                    Kennzeichen möchten.
-                  </p>
-                </div>
-
-                {/* Kennzeichen Wahl */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6">
-                  <label className="block text-sm font-semibold text-dark-800 mb-3">
-                    Kennzeichenwahl{' '}
-                    <span className="text-red-500">*</span>
-                  </label>
-                  <div className="space-y-3">
-                    <label
-                      className={cn(
-                        'flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all',
-                        watchKennzeichenWahl === 'zufaellig'
-                          ? 'border-primary bg-primary/[0.04]'
-                          : 'border-dark-100 hover:border-dark-200'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          value="zufaellig"
-                          {...register('kennzeichenWahl')}
-                          className="accent-primary w-4 h-4"
-                        />
-                        <div>
-                          <span className="font-medium text-dark-700">
-                            Zufälliges Kennzeichen
-                          </span>
-                          <p className="text-xs text-dark-400 mt-0.5">
-                            Die Zulassungsstelle teilt Ihnen ein Kennzeichen zu
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-dark-400 text-sm">Inklusive</span>
-                    </label>
-                    <label
-                      className={cn(
-                        'flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all',
-                        watchKennzeichenWahl === 'reserviert'
-                          ? 'border-primary bg-primary/[0.04]'
-                          : 'border-dark-100 hover:border-dark-200'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          value="reserviert"
-                          {...register('kennzeichenWahl')}
-                          className="accent-primary w-4 h-4"
-                        />
-                        <div>
-                          <span className="font-medium text-dark-700">
-                            Reserviertes Wunschkennzeichen
-                          </span>
-                          <p className="text-xs text-dark-400 mt-0.5">
-                            Verwenden Sie ein bereits reserviertes Kennzeichen
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-primary font-bold text-sm">
-                        + {reserviertPrice.toFixed(2).replace('.', ',')} €
-                      </span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Conditional: Wunschkennzeichen fields */}
-                {watchKennzeichenWahl === 'reserviert' && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6 space-y-5"
+              return (
+                <div key={step.title} className="flex items-center flex-1 last:flex-initial">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isDone) setCurrentStep(index);
+                    }}
+                    className={`flex items-center gap-2 md:gap-3 transition-all ${
+                      isDone ? 'cursor-pointer' : 'cursor-default'
+                    }`}
                   >
-                    <div>
-                      <label className="block text-sm font-semibold text-dark-800 mb-2">
-                        Wunschkennzeichen
-                      </label>
-                      <input
-                        type="text"
-                        {...register('wunschkennzeichen')}
-                        placeholder="z.B. E-AB 1234"
-                        className="input-field uppercase"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-dark-800 mb-2">
-                        Reservierungs-PIN
-                      </label>
-                      <input
-                        type="text"
-                        {...register('kennzeichenPin')}
-                        placeholder="PIN von der Reservierung"
-                        className="input-field"
-                      />
-                      <p className="text-xs text-dark-400 mt-2">
-                        Den PIN erhalten Sie bei der Reservierung über die
-                        Website Ihrer Zulassungsstelle.
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
+                    <span
+                      className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all ${
+                        isActive
+                          ? 'bg-primary text-white shadow-lg shadow-primary/30 scale-110'
+                          : isDone
+                          ? 'bg-accent text-white'
+                          : 'bg-gray-100 text-gray-400'
+                      }`}
+                    >
+                      {isDone ? (
+                        <CheckCircle className="w-5 h-5" />
+                      ) : (
+                        <StepIcon className="w-5 h-5" />
+                      )}
+                    </span>
 
-                {/* Kennzeichen bestellen */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6">
-                  <label className="block text-sm font-semibold text-dark-800 mb-3">
-                    Kennzeichen bestellen & liefern lassen?
-                  </label>
-                  <div className="space-y-3">
-                    <label
-                      className={cn(
-                        'flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all',
-                        watchKennzeichenBestellen === 'nein'
-                          ? 'border-primary bg-primary/[0.04]'
-                          : 'border-dark-100 hover:border-dark-200'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          value="nein"
-                          {...register('kennzeichenBestellen')}
-                          className="accent-primary w-4 h-4"
-                        />
-                        <div>
-                          <span className="font-medium text-dark-700">
-                            Nein, ich besorge selbst Kennzeichen
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-dark-400 text-sm">Inklusive</span>
-                    </label>
-                    <label
-                      className={cn(
-                        'flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all',
-                        watchKennzeichenBestellen === 'ja'
-                          ? 'border-primary bg-primary/[0.04]'
-                          : 'border-dark-100 hover:border-dark-200'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          value="ja"
-                          {...register('kennzeichenBestellen')}
-                          className="accent-primary w-4 h-4"
-                        />
-                        <div>
-                          <span className="font-medium text-dark-700">
-                            Ja, Kennzeichen bestellen & liefern
-                          </span>
-                          <p className="text-xs text-dark-400 mt-0.5">
-                            Wir bestellen geprägte Kennzeichen bei einem
-                            zertifizierten Hersteller
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-primary font-bold text-sm">
-                        + {bestellenPrice.toFixed(2).replace('.', ',')} €
+                    <span className="hidden md:block text-left">
+                      <span
+                        className={`block text-sm font-bold ${
+                          isActive ? 'text-primary' : isDone ? 'text-accent' : 'text-gray-400'
+                        }`}
+                      >
+                        {step.title}
                       </span>
-                    </label>
-                  </div>
+                      <span className="block text-xs text-gray-400">{step.description}</span>
+                    </span>
+                  </button>
+
+                  {index < FORM_STEPS.length - 1 && (
+                    <div className="flex-1 mx-2 md:mx-4">
+                      <div className="h-0.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            isDone ? 'bg-accent w-full' : 'bg-gray-200 w-0'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="px-6 md:px-10 py-8 min-h-[400px]">
+          {currentStep === 0 && (
+            <div
+              key="step-1"
+              className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                  <Car className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900">Service & Ausweis</h3>
+                  <p className="text-sm text-gray-500">
+                    Wählen Sie Ihre gewünschte Leistung und Ihren Ausweistyp
+                  </p>
                 </div>
               </div>
-            )}
 
-            {/* ── STEP 3: Bankdaten & Upload ── */}
-            {currentStep === 3 && (
-              <div className="space-y-6">
-                <div className="mb-2">
-                  <h2 className="text-2xl font-bold text-dark-900">
-                    Bankdaten & Dokumente
-                  </h2>
-                  <p className="text-dark-500 text-sm mt-1">
-                    SEPA-Lastschrift für die KFZ-Steuer und erforderliche
-                    Dokumente hochladen.
-                  </p>
-                </div>
-
-                {/* Bankdaten */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6 space-y-5">
-                  <h3 className="text-sm font-bold text-dark-800 uppercase tracking-wider">
-                    SEPA-Lastschriftmandat
-                  </h3>
-                  <div>
-                    <label className="block text-sm font-semibold text-dark-800 mb-2">
-                      Kontoinhaber{' '}
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      {...register('kontoinhaber')}
-                      placeholder="Vor- und Nachname"
-                      className={cn(
-                        'input-field',
-                        errors.kontoinhaber &&
-                          'border-red-400 focus:ring-red-400 focus:border-red-400'
-                      )}
-                    />
-                    {errors.kontoinhaber && (
-                      <p className="text-red-500 text-sm mt-1">
-                        {errors.kontoinhaber.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-dark-800 mb-2">
-                      IBAN{' '}
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      {...register('iban')}
-                      placeholder="DE00 0000 0000 0000 0000 00"
-                      className={cn(
-                        'input-field',
-                        errors.iban &&
-                          'border-red-400 focus:ring-red-400 focus:border-red-400'
-                      )}
-                    />
-                    {errors.iban && (
-                      <p className="text-red-500 text-sm mt-1">
-                        {errors.iban.message}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Document Uploads — Vehicle */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6 space-y-4">
-                  <h3 className="text-sm font-bold text-dark-800 uppercase tracking-wider">
-                    Fahrzeugdokumente
-                  </h3>
-                  <p className="text-xs text-dark-500">
-                    Bitte laden Sie gut lesbare Fotos oder Scans der folgenden
-                    Dokumente hoch.
-                  </p>
-
-                  {getVehicleDocs(watchService).map((doc) => (
-                    <DocumentUpload
-                      key={doc.id}
-                      label={doc.label}
-                      docKey={doc.id}
-                      exampleImage={doc.exampleImage}
-                    />
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Was möchten Sie tun? <span className="text-red-500">*</span>
+                </label>
+                <select {...register('service')} className={SELECT_CLASS}>
+                  <option value="">— Bitte wählen —</option>
+                  {SERVICE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label} ( + {opt.price.toFixed(2).replace('.', ',')} € )
+                    </option>
                   ))}
-                </div>
-
-                {/* Document Uploads — Verification */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6 space-y-4">
-                  <h3 className="text-sm font-bold text-dark-800 uppercase tracking-wider">
-                    Ausweis / Identifikation
-                  </h3>
-
-                  {getVerificationDocs(watch('ausweis')).map((doc) => (
-                    <DocumentUpload
-                      key={doc.id}
-                      label={doc.label}
-                      docKey={doc.id}
-                      exampleImage={doc.exampleImage}
-                    />
-                  ))}
-                </div>
-
-                {/* Contact help box */}
-                <div className="rounded-xl bg-gray-50 border border-gray-200 p-4">
-                  <p className="text-sm text-dark-600 mb-3">
-                    Probleme beim Hochladen? Senden Sie uns die Fotos alternativ
-                    per WhatsApp oder E-Mail.
+                </select>
+                {errors.service && (
+                  <p className="text-red-500 text-sm mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.service.message}
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Welchen Ausweis besitzen Sie? <span className="text-red-500">*</span>
+                </label>
+                <select {...register('ausweis')} className={SELECT_CLASS}>
+                  <option value="">— Bitte wählen —</option>
+                  <option value="personalausweis">Deutscher Personalausweis</option>
+                  <option value="aufenthaltstitel">Aufenthaltstitel</option>
+                  <option value="reisepass">Reisepass</option>
+                </select>
+                {errors.ausweis && (
+                  <p className="text-red-500 text-sm mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.ausweis.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  eVB Nummer eintragen (Versicherungsbestätigung){' '}
+                  <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  {...register('evbNummer')}
+                  placeholder="z. B. A1B2C3D"
+                  className={INPUT_CLASS}
+                />
+                {errors.evbNummer && (
+                  <p className="text-red-500 text-sm mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.evbNummer.message}
+                  </p>
+                )}
+                <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+                  <Shield className="w-3 h-3" />
+                  Die eVB-Nummer erhalten Sie von Ihrer KFZ-Versicherung
+                </p>
+              </div>
+            </div>
+          )}
+
+          {currentStep === 1 && (
+            <div
+              key="step-2"
+              className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                  <Package className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900">Kennzeichen</h3>
+                  <p className="text-sm text-gray-500">Wunschkennzeichen & Bestelloptionen</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Welches Kennzeichen möchten Sie? <span className="text-red-500">*</span>
+                </label>
+                <select {...register('kennzeichenWahl')} className={SELECT_CLASS}>
+                  <option value="">— Bitte wählen —</option>
+                  <option value="automatisch">Automatische Zuteilung</option>
+                  <option value="reserviert">
+                    Reserviertes Kennzeichen ( + {fmtPrice(kReserviertUnit)} € )
+                  </option>
+                </select>
+                {errors.kennzeichenWahl && (
+                  <p className="text-red-500 text-sm mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.kennzeichenWahl.message}
+                  </p>
+                )}
+              </div>
+
+              {kennzeichenWahl === 'reserviert' && (
+                <div className="space-y-4 p-4 bg-primary/5 border border-primary/20 rounded-xl">
+                  <p className="text-sm text-gray-700 font-medium">
+                    Bitte Ihr Wunschkennzeichen und die PIN aus der Reservierung eintragen. Kein
+                    reserviertes Kennzeichen vorhanden?{' '}
                     <a
-                      href="https://wa.me/4915224999190"
+                      href={contactWhatsapp}
                       target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#25D366] text-white text-xs font-semibold hover:opacity-90 transition-opacity"
+                      rel="nofollow noopener noreferrer"
+                      className="text-primary underline font-bold"
                     >
-                      <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                      Kontaktieren Sie uns.
                     </a>
-                    <a
-                      href="mailto:info@ikfzdigitalzulassung.de"
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity"
-                    >
-                      <Mail className="w-3.5 h-3.5" /> E-Mail
-                    </a>
+                  </p>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">
+                      Wunschkennzeichen <span className="text-red-500">*</span>
+                    </label>
+                    <LicensePlateInput
+                      value={watch('wunschkennzeichen') || ''}
+                      onChange={(v) =>
+                        setValue('wunschkennzeichen', v, { shouldValidate: true })
+                      }
+                      error={errors.wunschkennzeichen?.message}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">
+                      PIN für reserviertes Kennzeichen <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      {...register('kennzeichenPin')}
+                      placeholder="z. B. 123456"
+                      className={INPUT_CLASS}
+                    />
+                    {errors.kennzeichenPin && (
+                      <p className="text-red-500 text-sm mt-1.5 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {errors.kennzeichenPin.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-3">
+                  Möchten Sie Ihre Kennzeichen mitbestellen?{' '}
+                  <span className="text-red-500">*</span>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label
+                    className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      kennzeichenBestellen === 'ja'
+                        ? 'border-primary bg-primary/5'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      value="ja"
+                      {...register('kennzeichenBestellen')}
+                      className="w-4 h-4 text-primary focus:ring-primary"
+                    />
+                    <div>
+                      <p className="font-bold text-sm text-gray-800">
+                        Ja <span className="text-accent">(+ {fmtPrice(kBestellenUnit)} €)</span>
+                      </p>
+                      <p className="text-xs text-gray-400">Lieferung in 2–3 Werktagen</p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      kennzeichenBestellen === 'nein'
+                        ? 'border-primary bg-primary/5'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      value="nein"
+                      {...register('kennzeichenBestellen')}
+                      className="w-4 h-4 text-primary focus:ring-primary"
+                    />
+                    <div>
+                      <p className="font-bold text-sm text-gray-800">Nein</p>
+                      <p className="text-xs text-gray-400">
+                        Selbst beim Schildermacher prägen
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                <p className="text-xs text-gray-400 mt-2">
+                  Hinweis: Kennzeichen von uns werden in 2–3 Werktagen geliefert.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {currentStep === 2 && (
+            <div
+              key="step-3"
+              className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                  <Landmark className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900">
+                    Bankverbindung für die Kfz-Steuerlastschrift
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    IBAN wird für die automatische KFZ-Steuer benötigt
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Kontoinhaber (Vor- und Nachname) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  {...register('kontoinhaber')}
+                  placeholder="Max Mustermann"
+                  className={INPUT_CLASS}
+                />
+                {errors.kontoinhaber && (
+                  <p className="text-red-500 text-sm mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.kontoinhaber.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  IBAN <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  {...register('iban')}
+                  placeholder="DE89 3704 0044 0532 0130 00"
+                  className={INPUT_CLASS}
+                />
+                {errors.iban && (
+                  <p className="text-red-500 text-sm mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.iban.message}
+                  </p>
+                )}
+                <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  Wird nur für das Lastschriftmandat der KFZ-Steuer verwendet
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                    <Upload className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900">Fahrzeugdokumente hochladen</h4>
+                    <p className="text-xs text-gray-500">
+                      Bitte laden Sie die für Ihren Service benötigten Fahrzeugdokumente hoch
+                    </p>
                   </div>
                 </div>
 
-                {/* Wichtige Informationen */}
-                <details
-                  open={showWichtig}
-                  onToggle={(e) => setShowWichtig((e.target as HTMLDetailsElement).open)}
-                  className="rounded-xl bg-amber-50 border border-amber-200 overflow-hidden"
-                >
-                  <summary className="flex items-center justify-between p-4 cursor-pointer list-none">
-                    <span className="flex items-center gap-2 text-sm font-semibold text-amber-800">
-                      <AlertTriangle className="w-4 h-4" /> Wichtige Informationen
-                    </span>
-                    <ChevronDown className={cn('w-4 h-4 text-amber-600 transition-transform', showWichtig && 'rotate-180')} />
-                  </summary>
-                  <div className="px-4 pb-4 text-sm text-amber-700 space-y-2">
-                    <p>Bitte achten Sie darauf, dass alle Angaben exakt mit Ihren Dokumenten übereinstimmen.</p>
-                    <p className="font-medium">Besonders wichtig: eVB-Nummer, Name laut Ausweis, reservierte Kennzeichen, PIN, Bankdaten.</p>
-                    <p>Sind die Daten nicht korrekt, kann der Antrag abgelehnt werden (kostenpflichtig).</p>
-                    <p>Kontaktieren Sie uns vor dem Absenden bei Unsicherheit.</p>
-                    <p>Stellen Sie sicher, dass keine offenen Steuerrückstände bei der Zulassungsstelle bestehen.</p>
-                  </div>
-                </details>
+                {vehicleUploadIds.map((id) => {
+                  const field = getUploadFieldById(id);
+                  return (
+                    <FileUploadCard
+                      key={field.id}
+                      field={field}
+                      file={uploadedFiles[field.id]}
+                      error={uploadErrors[field.id]}
+                      onFileChange={(file) => {
+                        setUploadedFiles((prev) => ({ ...prev, [field.id]: file }));
+                        setUploadErrors((prev) => {
+                          const next = { ...prev };
+                          delete next[field.id];
+                          return next;
+                        });
+                      }}
+                      onRemove={() => {
+                        setUploadedFiles((prev) => ({ ...prev, [field.id]: null }));
+                      }}
+                    />
+                  );
+                })}
+              </div>
 
-                {/* Price summary */}
-                <div className="rounded-2xl bg-gradient-to-r from-primary/5 to-accent/5 border border-primary/10 p-6">
-                  <h3 className="font-bold text-dark-800 mb-4">
-                    Kostenübersicht
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-dark-600">
-                        {services.find((s) => s.key === watchService)?.label ?? 'Service'}
-                      </span>
-                      <span className="text-dark-800 font-medium">
-                        {selectedServicePrice.toFixed(2).replace('.', ',')} €
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900">Verifizierung</h4>
+                    <p className="text-xs text-gray-500">
+                      Bitte laden Sie die passenden Dokumente gut leserlich hoch
+                    </p>
+                  </div>
+                </div>
+
+                {verificationUploadIds.map((id) => {
+                  const field = getUploadFieldById(id);
+                  return (
+                    <FileUploadCard
+                      key={field.id}
+                      field={field}
+                      file={uploadedFiles[field.id]}
+                      error={uploadErrors[field.id]}
+                      onFileChange={(file) => {
+                        setUploadedFiles((prev) => ({ ...prev, [field.id]: file }));
+                        setUploadErrors((prev) => {
+                          const next = { ...prev };
+                          delete next[field.id];
+                          return next;
+                        });
+                      }}
+                      onRemove={() => {
+                        setUploadedFiles((prev) => ({ ...prev, [field.id]: null }));
+                      }}
+                    />
+                  );
+                })}
+              </div>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                <p className="text-sm text-gray-600 mb-3">
+                  <strong>Probleme beim Hochladen?</strong> Senden Sie uns die Fotos alternativ per
+                  WhatsApp oder E-Mail.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <a
+                    href={contactWhatsapp}
+                    target="_blank"
+                    rel="nofollow noopener noreferrer"
+                    className="inline-flex items-center gap-2 bg-[#25D366] text-white text-xs font-bold px-3 py-2 rounded-lg hover:bg-[#128C7E] transition-colors"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    WhatsApp {contactPhone}
+                  </a>
+                  <a
+                    href={`mailto:${contactEmail}`}
+                    className="inline-flex items-center gap-2 bg-primary text-white text-xs font-bold px-3 py-2 rounded-lg hover:bg-primary-600 transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    {contactEmail}
+                  </a>
+                </div>
+              </div>
+
+              <details className="group bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+                <summary className="list-none cursor-pointer px-4 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-amber-900">Wichtige Informationen</p>
+                    <p className="text-xs text-amber-800 mt-1">
+                      Bitte prüfen Sie Ihre Angaben vor dem Absenden genau
+                    </p>
+                  </div>
+                  <ChevronDown className="w-5 h-5 text-amber-900 transition-transform group-open:rotate-180" />
+                </summary>
+
+                <div className="px-4 pb-4 text-sm text-amber-900 space-y-2 leading-relaxed">
+                  <p>
+                    Bitte achten Sie darauf, dass alle Angaben exakt mit Ihren Dokumenten
+                    übereinstimmen.
+                  </p>
+                  <p>
+                    Besonders wichtig sind die eVB-Nummer, der vollständige Name laut Ausweis,
+                    bereits reservierte Kennzeichen, die PIN der Reservierung und Ihre Bankdaten.
+                  </p>
+                  <p>
+                    Wenn Daten bei Versicherung, Kennzeichen-Reservierung oder Lastschrift nicht
+                    korrekt hinterlegt sind, kann der Antrag abgelehnt werden.
+                  </p>
+                  <p>
+                    Eine Ablehnung kann kostenpflichtig sein. Wenn Sie unsicher sind, kontaktieren
+                    Sie uns bitte vor dem Absenden kurz per WhatsApp oder Telefon.
+                  </p>
+                  <p>
+                    Wichtig ist außerdem, dass bei Ihrer zuständigen Zulassungsstelle keine
+                    offenen Steuerrückstände bestehen.
+                  </p>
+                </div>
+              </details>
+
+              <div className="bg-gradient-to-r from-primary/5 to-accent/5 rounded-xl p-5 border border-primary/10">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">{serviceOption?.label ?? 'Zulassung'}</span>
+                    <span className="font-bold text-gray-800">
+                      {basePrice.toFixed(2).replace('.', ',')} €
+                    </span>
+                  </div>
+
+                  {kennzeichenReservierung > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Reserviertes Kennzeichen</span>
+                      <span className="font-bold text-gray-800">
+                        + {fmtPrice(kennzeichenReservierung)} €
                       </span>
                     </div>
-                    {watchKennzeichenWahl === 'reserviert' && (
-                      <div className="flex justify-between">
-                        <span className="text-dark-600">
-                          Reserviertes Wunschkennzeichen
-                        </span>
-                        <span className="text-dark-800 font-medium">
-                          {reserviertPrice.toFixed(2).replace('.', ',')} €
-                        </span>
-                      </div>
-                    )}
-                    {watchKennzeichenBestellen === 'ja' && (
-                      <div className="flex justify-between">
-                        <span className="text-dark-600">
-                          Kennzeichen bestellen & liefern
-                        </span>
-                        <span className="text-dark-800 font-medium">
-                          {bestellenPrice.toFixed(2).replace('.', ',')} €
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t border-primary/20">
-                    <span className="text-lg font-bold text-dark-900">
-                      Gesamtpreis
-                    </span>
-                    <span className="text-2xl font-black text-primary">
+                  )}
+
+                  {kennzeichenBestellung > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Kennzeichen-Bestellung</span>
+                      <span className="font-bold text-gray-800">
+                        + {fmtPrice(kennzeichenBestellung)} €
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="border-t border-primary/10 pt-2 flex justify-between">
+                    <span className="font-bold text-primary text-lg">Gesamt</span>
+                    <span className="font-extrabold text-primary text-lg">
                       {totalPrice.toFixed(2).replace('.', ',')} €
                     </span>
                   </div>
                 </div>
               </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-
-        {/* ── Navigation Buttons ── */}
-        <div className="flex items-center justify-between mt-8 pt-6 border-t border-dark-100">
-          {currentStep > 1 ? (
-            <button
-              type="button"
-              onClick={prevStep}
-              className="btn-secondary py-3 px-6"
-            >
-              <ArrowLeft className="w-4 h-4" /> Zurück
-            </button>
-          ) : (
-            <div />
+            </div>
           )}
+        </div>
 
-          {currentStep < 3 && (
-            <div className="hidden md:flex items-center gap-2 text-sm">
-              <span className="text-dark-400">Aktueller Preis:</span>
-              <span className="font-bold text-primary text-lg">
-                {totalPrice.toFixed(2).replace('.', ',')} €
-              </span>
+        <div className="px-6 md:px-10 pb-8">
+          {formError && (
+            <div className="mb-4">
+              <FormErrorBanner message={formError} onDismiss={() => setFormError(null)} />
             </div>
           )}
 
-          {currentStep < 3 ? (
-            <button
-              type="button"
-              onClick={nextStep}
-              className="btn-primary py-3 px-8"
-            >
-              Weiter <ArrowRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className={cn(
-                'btn-primary py-3 px-8',
-                isSubmitting && 'opacity-60 cursor-not-allowed'
-              )}
-            >
-              {isSubmitting ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Wird verarbeitet...
-                </>
-              ) : (
-                <>
-                  Weiter zur Kasse <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          )}
+          <div className="flex items-center justify-between gap-4">
+            {currentStep > 0 ? (
+              <button
+                type="button"
+                onClick={prevStep}
+                className="flex items-center gap-2 text-gray-500 hover:text-primary font-bold transition-colors px-4 py-3"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Zurück
+              </button>
+            ) : (
+              <div />
+            )}
+
+            {currentStep < FORM_STEPS.length - 1 ? (
+              <button
+                type="button"
+                onClick={nextStep}
+                className="flex items-center gap-2 bg-primary hover:bg-primary-600 text-white font-bold px-8 py-3.5 rounded-xl transition-all hover:shadow-lg hover:shadow-primary/25"
+              >
+                Weiter
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex items-center gap-2 bg-accent hover:bg-accent/90 text-white font-bold px-8 py-3.5 rounded-xl transition-all hover:shadow-lg hover:shadow-accent/25 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Wird gesendet …
+                  </>
+                ) : (
+                  <>
+                    <ShoppingCart className="w-5 h-5" />
+                    Zur Kasse – {totalPrice.toFixed(2).replace('.', ',')} €
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-gray-400">
+            <span className="flex items-center gap-1">
+              <Lock className="w-3 h-3" /> SSL-verschlüsselt
+            </span>
+            <span className="flex items-center gap-1">
+              <Shield className="w-3 h-3" /> KBA-registriert
+            </span>
+            <span className="flex items-center gap-1">
+              <Phone className="w-3 h-3" /> Live-Support: {contactPhone}
+            </span>
+          </div>
         </div>
       </form>
-
-      {/* ── Example Image Modal ── */}
-      <AnimatePresence>
-        {exampleModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-            onClick={() => setExampleModal(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-              className="relative max-w-lg w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                onClick={() => setExampleModal(null)}
-                className="absolute top-3 right-3 z-10 p-2 bg-white/90 rounded-full shadow-md hover:bg-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <div className="relative w-full aspect-square">
-                <Image
-                  src={exampleModal}
-                  alt="Beispielbild"
-                  fill
-                  className="object-contain"
-                />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
