@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,7 +8,6 @@ import { z } from 'zod';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
-  Phone,
   ArrowRight,
   ArrowLeft,
   Check,
@@ -17,43 +16,108 @@ import {
   Shield,
   Tag,
   HelpCircle,
+  Upload,
+  CheckCircle2,
+  Truck,
+  Bike,
+  CircleHelp,
+  PlayCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePriceFeed } from '@/hooks/usePriceFeed';
 import KennzeichenInput from '@/components/KennzeichenInput';
 
-// ── Zod Schema for Abmeldung ──
-const abmeldungSchema = z.object({
-  kennzeichen: z.string().min(1, 'Kennzeichen ist erforderlich'),
-  fin: z.string().min(1, 'Fahrgestellnummer ist erforderlich'),
-  sicherheitscode: z
-    .string()
-    .length(7, 'Der Sicherheitscode muss genau 7 Zeichen haben'),
-  stadtKreis: z.string().min(1, 'Stadt/Kreis ist erforderlich'),
-  codeVorne: z
-    .string()
-    .length(3, 'Der Code muss genau 3 Zeichen haben'),
-  codeHinten: z
-    .string()
-    .length(3, 'Der Code muss genau 3 Zeichen haben'),
-  reservierung: z.enum(['keine', 'einJahr']),
-});
+// ── Externe Medien ──
+const SCHEIN_VIDEO_URL = 'https://www.youtube.com/watch?v=u38keaF1QKU';
+const KENNZEICHEN_VIDEO_URL = 'https://www.youtube.com/watch?v=3nsdJSvKAtE';
+
+const TEIL1_VORDERSEITE_IMAGE =
+  'https://ikfzdigitalzulassung.de/uploads/Zulassungsbescheinigung-I-1-685d2fef.jpg';
+
+const TEIL1_RUECKSEITE_IMAGE =
+  'https://ikfzdigitalzulassung.de/uploads/2024/11/WhatsApp-Image-2024-01-06-at-3.21.48-PM-2.jpeg';
+
+const KENNZEICHEN_CODE_IMAGE =
+  'https://ikfzdigitalzulassung.de/uploads/2024/10/j-1536x863.png';
+
+// ── Schema ──
+const abmeldungSchema = z
+  .object({
+    vehicleType: z.enum(
+      ['auto', 'motorrad', 'anhaenger', 'leichtkraftrad', 'lkw', 'andere'],
+      {
+        required_error: 'Bitte wählen Sie eine Fahrzeugart',
+      }
+    ),
+    inputMode: z.enum(['manuell', 'bilder'], {
+      required_error: 'Bitte wählen Sie eine Eingabeart',
+    }),
+    kennzeichen: z.string().min(1, 'Kennzeichen ist erforderlich'),
+    fin: z.string().optional(),
+    sicherheitscode: z.string().optional(),
+    stadtKreis: z.string().min(1, 'Stadt/Kreis ist erforderlich'),
+    codeVorne: z.string().optional(),
+    codeHinten: z.string().optional(),
+    reservierung: z.enum(['keine', 'einJahr']),
+  })
+  .superRefine((data, ctx) => {
+    const onePlate =
+      data.vehicleType === 'motorrad' ||
+      data.vehicleType === 'anhaenger' ||
+      data.vehicleType === 'leichtkraftrad';
+
+    if (data.inputMode === 'manuell') {
+      if (!data.fin || data.fin.trim().length < 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['fin'],
+          message: 'Fahrgestellnummer ist erforderlich',
+        });
+      }
+
+      if (!data.sicherheitscode || data.sicherheitscode.trim().length !== 7) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sicherheitscode'],
+          message: 'Der Sicherheitscode muss genau 7 Zeichen haben',
+        });
+      }
+    }
+
+    if (onePlate) {
+      if (!data.codeHinten || data.codeHinten.trim().length !== 3) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['codeHinten'],
+          message: 'Der Code muss genau 3 Zeichen haben',
+        });
+      }
+    } else {
+      if (!data.codeVorne || data.codeVorne.trim().length !== 3) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['codeVorne'],
+          message: 'Der Code muss genau 3 Zeichen haben',
+        });
+      }
+      if (!data.codeHinten || data.codeHinten.trim().length !== 3) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['codeHinten'],
+          message: 'Der Code muss genau 3 Zeichen haben',
+        });
+      }
+    }
+  });
 
 type AbmeldungFormData = z.infer<typeof abmeldungSchema>;
 
 const STEPS = [
   { id: 1, label: 'Fahrzeugdaten', icon: Car },
-  { id: 2, label: 'Fahrzeugschein', icon: FileText },
-  { id: 3, label: 'Kennzeichen', icon: Shield },
+  { id: 2, label: 'Fahrzeugschein-Code', icon: FileText },
+  { id: 3, label: 'Kennzeichen-Code(s)', icon: Shield },
   { id: 4, label: 'Reservierung', icon: Tag },
 ];
-
-const STEP_FIELDS: Record<number, (keyof AbmeldungFormData)[]> = {
-  1: ['kennzeichen', 'fin'],
-  2: ['sicherheitscode'],
-  3: ['stadtKreis', 'codeVorne', 'codeHinten'],
-  4: ['reservierung'],
-};
 
 interface ServiceFormProps {
   basePrice: number;
@@ -61,18 +125,124 @@ interface ServiceFormProps {
   productName: string;
 }
 
+type UploadFiles = {
+  teil1Vorne: File | null;
+  teil1Hinten: File | null;
+  kennzeichenVorne: File | null;
+  kennzeichenHinten: File | null;
+};
+
+const INITIAL_UPLOADS: UploadFiles = {
+  teil1Vorne: null,
+  teil1Hinten: null,
+  kennzeichenVorne: null,
+  kennzeichenHinten: null,
+};
+
+const formatPrice = (value: number) => `${value.toFixed(2).replace('.', ',')} €`;
+
+function FileUploadBox({
+  title,
+  subtitle,
+  file,
+  onChange,
+  required = false,
+}: {
+  title: string;
+  subtitle?: string;
+  file: File | null;
+  onChange: (file: File | null) => void;
+  required?: boolean;
+}) {
+  return (
+    <label className="block cursor-pointer rounded-2xl border border-white/10 bg-white/[0.04] p-4 transition hover:border-emerald-400/30 hover:bg-white/[0.06]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-white">
+            {title} {required && <span className="text-red-400">*</span>}
+          </div>
+          {subtitle && <p className="mt-1 text-xs text-zinc-400">{subtitle}</p>}
+          {file && (
+            <p className="mt-3 break-all text-xs font-medium text-emerald-400">
+              Ausgewählt: {file.name}
+            </p>
+          )}
+        </div>
+        <div className="rounded-xl bg-emerald-500/10 p-3">
+          <Upload className="h-4 w-4 text-emerald-400" />
+        </div>
+      </div>
+      <input
+        type="file"
+        accept="image/*,.pdf"
+        className="hidden"
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+      />
+    </label>
+  );
+}
+
+function MediaHelpCard({
+  title,
+  videoUrl,
+  imageUrl,
+  imageAlt,
+}: {
+  title: string;
+  videoUrl: string;
+  imageUrl: string;
+  imageAlt: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
+      <div className="border-b border-white/10 px-5 py-4">
+        <p className="flex items-center gap-2 text-sm font-semibold text-white">
+          <HelpCircle className="h-4 w-4 text-emerald-400" />
+          {title}
+        </p>
+      </div>
+      <div className="p-5">
+        <a
+          href={videoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-4 inline-flex items-center gap-2 rounded-2xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-400 hover:bg-emerald-500/15"
+        >
+          <PlayCircle className="h-4 w-4" />
+          Video-Anleitung ansehen
+        </a>
+
+        <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-white">
+          <Image
+            src={imageUrl}
+            alt={imageAlt}
+            fill
+            sizes="(max-width: 768px) 100vw, 900px"
+            className="object-contain"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ServiceForm({
-  basePrice = 19.70,
-  reservierungPrice = 4.70,
+  basePrice = 19.7,
+  reservierungPrice = 4.7,
   productName = 'Fahrzeug Online Abmelden',
 }: ServiceFormProps) {
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState(1);
-  const [showCodeHelp, setShowCodeHelp] = useState(false);
-  const [showKennzeichenHelp, setShowKennzeichenHelp] = useState(false);
+  const stepTopRef = useRef<HTMLDivElement | null>(null);
 
-  // Use live price from SSE feed; falls back to server-rendered prop
-  const feed = usePriceFeed({ 'fahrzeugabmeldung': { price: basePrice, options: null } });
+  const [currentStep, setCurrentStep] = useState(1);
+  const [showCodeHelp, setShowCodeHelp] = useState(true);
+  const [showKennzeichenHelp, setShowKennzeichenHelp] = useState(true);
+  const [uploads, setUploads] = useState<UploadFiles>(INITIAL_UPLOADS);
+  const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
+
+  const feed = usePriceFeed({
+    fahrzeugabmeldung: { price: basePrice, options: null },
+  });
   const liveBasePrice = feed['fahrzeugabmeldung']?.price ?? basePrice;
 
   const {
@@ -80,17 +250,31 @@ export default function ServiceForm({
     handleSubmit,
     watch,
     trigger,
-    getValues,
     setValue,
     formState: { errors },
   } = useForm<AbmeldungFormData>({
     resolver: zodResolver(abmeldungSchema),
     defaultValues: {
+      vehicleType: 'auto',
+      inputMode: 'manuell',
       reservierung: 'keine',
+      kennzeichen: '',
+      fin: '',
+      sicherheitscode: '',
+      stadtKreis: '',
+      codeVorne: '',
+      codeHinten: '',
     },
   });
 
   const watchReservierung = watch('reservierung');
+  const watchVehicleType = watch('vehicleType');
+  const watchInputMode = watch('inputMode');
+
+  const onePlateVehicle =
+    watchVehicleType === 'motorrad' ||
+    watchVehicleType === 'anhaenger' ||
+    watchVehicleType === 'leichtkraftrad';
 
   const totalPrice = useMemo(() => {
     let price = liveBasePrice;
@@ -100,644 +284,947 @@ export default function ServiceForm({
     return price;
   }, [liveBasePrice, reservierungPrice, watchReservierung]);
 
-  const nextStep = useCallback(async () => {
-    const fields = STEP_FIELDS[currentStep];
-    if (fields.length > 0) {
-      const valid = await trigger(fields);
-      if (!valid) return;
+  const scrollToTop = useCallback(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        stepTopRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 80);
+    });
+  }, []);
+
+  useEffect(() => {
+    scrollToTop();
+  }, [currentStep, scrollToTop]);
+
+  const setUpload = useCallback((key: keyof UploadFiles, file: File | null) => {
+    setUploads((prev) => ({ ...prev, [key]: file }));
+    setUploadErrors((prev) => ({ ...prev, [key]: '' }));
+  }, []);
+
+  const validateCurrentStep = useCallback(async () => {
+    setUploadErrors({});
+    let valid = true;
+
+    if (currentStep === 1) {
+      const stepValid = await trigger(['vehicleType', 'inputMode', 'kennzeichen', 'fin']);
+      if (watchInputMode === 'bilder') {
+        const partialValid = await trigger(['vehicleType', 'inputMode', 'kennzeichen']);
+        if (!partialValid) valid = false;
+      } else if (!stepValid) {
+        valid = false;
+      }
     }
+
+    if (currentStep === 2) {
+      const baseValid = await trigger(['stadtKreis']);
+      if (!baseValid) valid = false;
+
+      if (watchInputMode === 'manuell') {
+        const manualValid = await trigger(['sicherheitscode']);
+        if (!manualValid) valid = false;
+      }
+
+      if (watchInputMode === 'bilder') {
+        const nextUploadErrors: Record<string, string> = {};
+
+        if (!uploads.teil1Vorne) {
+          nextUploadErrors.teil1Vorne = 'Bitte Vorderseite hochladen';
+          valid = false;
+        }
+        if (!uploads.teil1Hinten) {
+          nextUploadErrors.teil1Hinten =
+            'Bitte Rückseite oder den Bereich mit dem Sicherheitscode hochladen';
+          valid = false;
+        }
+
+        setUploadErrors(nextUploadErrors);
+      }
+    }
+
+    if (currentStep === 3) {
+      if (watchInputMode === 'manuell') {
+        if (onePlateVehicle) {
+          const codeValid = await trigger(['codeHinten']);
+          if (!codeValid) valid = false;
+        } else {
+          const codeValid = await trigger(['codeVorne', 'codeHinten']);
+          if (!codeValid) valid = false;
+        }
+      }
+
+      if (watchInputMode === 'bilder') {
+        const nextUploadErrors: Record<string, string> = {};
+
+        if (onePlateVehicle) {
+          if (!uploads.kennzeichenHinten) {
+            nextUploadErrors.kennzeichenHinten =
+              'Bitte Bild vom Kennzeichen mit Sicherheitscode hochladen';
+            valid = false;
+          }
+        } else {
+          if (!uploads.kennzeichenVorne) {
+            nextUploadErrors.kennzeichenVorne =
+              'Bitte Bild vom vorderen Kennzeichen hochladen';
+            valid = false;
+          }
+          if (!uploads.kennzeichenHinten) {
+            nextUploadErrors.kennzeichenHinten =
+              'Bitte Bild vom hinteren Kennzeichen hochladen';
+            valid = false;
+          }
+        }
+
+        setUploadErrors(nextUploadErrors);
+      }
+    }
+
+    if (currentStep === 4) {
+      const stepValid = await trigger(['reservierung']);
+      if (!stepValid) valid = false;
+    }
+
+    if (!valid) scrollToTop();
+
+    return valid;
+  }, [
+    currentStep,
+    onePlateVehicle,
+    scrollToTop,
+    trigger,
+    uploads.kennzeichenHinten,
+    uploads.kennzeichenVorne,
+    uploads.teil1Hinten,
+    uploads.teil1Vorne,
+    watchInputMode,
+  ]);
+
+  const nextStep = useCallback(async () => {
+    const valid = await validateCurrentStep();
+    if (!valid) return;
     setCurrentStep((s) => Math.min(s + 1, 4));
-  }, [currentStep, trigger]);
+  }, [validateCurrentStep]);
 
   const prevStep = useCallback(() => {
     setCurrentStep((s) => Math.max(s - 1, 1));
   }, []);
 
   const onSubmit = useCallback(
-    (data: AbmeldungFormData) => {
-      // Safety: only allow submission from the final step
+    async (data: AbmeldungFormData) => {
       if (currentStep !== 4) return;
 
-      // Save to sessionStorage for checkout page
+      const valid = await validateCurrentStep();
+      if (!valid) return;
+
+      const finalData = {
+        ...data,
+        kennzeichen: data.kennzeichen.toUpperCase(),
+        fin: (data.fin || '').toUpperCase(),
+        codeVorne: onePlateVehicle ? '' : (data.codeVorne || '').trim(),
+        codeHinten: (data.codeHinten || '').trim(),
+      };
+
       const orderData = {
         productName,
         productSlug: 'fahrzeugabmeldung',
         serviceType: 'abmeldung',
-        formData: data,
+        formData: finalData,
+        uploadMode: watchInputMode,
+        uploads: {
+          teil1Vorne: uploads.teil1Vorne?.name || null,
+          teil1Hinten: uploads.teil1Hinten?.name || null,
+          kennzeichenVorne: uploads.kennzeichenVorne?.name || null,
+          kennzeichenHinten: uploads.kennzeichenHinten?.name || null,
+        },
         basePrice: liveBasePrice,
-        addons: data.reservierung === 'einJahr'
-          ? [{ key: 'reservierung', label: 'Kennzeichenreservierung (1 Jahr)', price: reservierungPrice }]
-          : [],
+        addons:
+          data.reservierung === 'einJahr'
+            ? [
+                {
+                  key: 'reservierung',
+                  label: 'Kennzeichenreservierung (1 Jahr)',
+                  price: reservierungPrice,
+                },
+              ]
+            : [],
         total: totalPrice,
       };
+
       sessionStorage.setItem('checkout_order', JSON.stringify(orderData));
       router.push('/rechnung/');
     },
-    [currentStep, productName, liveBasePrice, reservierungPrice, totalPrice, router]
+    [
+      currentStep,
+      liveBasePrice,
+      onePlateVehicle,
+      productName,
+      reservierungPrice,
+      router,
+      totalPrice,
+      uploads.kennzeichenHinten,
+      uploads.kennzeichenVorne,
+      uploads.teil1Hinten,
+      uploads.teil1Vorne,
+      validateCurrentStep,
+      watchInputMode,
+    ]
   );
 
   return (
-    <div className="bg-white">
-      {/* Help Banner */}
-      <div className="flex items-center gap-3 rounded-2xl p-4 mb-8 bg-primary/[0.04] border border-primary/10">
-        <Phone className="w-5 h-5 text-primary flex-shrink-0" />
-        <span className="text-sm text-dark-600">
-          Benötigen Sie Hilfe? Rufen Sie uns an:{' '}
-          <a
-            href="tel:015224999190"
-            className="font-bold text-primary hover:underline"
-          >
-            ℡ 01522 4999190
-          </a>
-        </span>
-      </div>
+    <div className="min-h-screen bg-[#050816] px-3 py-4 md:px-6 md:py-8">
+      <div className="mx-auto max-w-5xl">
+        <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.10),transparent_26%),linear-gradient(180deg,#0A1020_0%,#060B16_100%)] shadow-[0_25px_80px_rgba(0,0,0,0.45)]">
+          <div className="p-4 md:p-8 lg:p-10">
+            <div ref={stepTopRef} />
 
-      {/* ── Stepper ── */}
-      <div className="mb-10">
-        <div className="flex items-center justify-between">
-          {STEPS.map((step, i) => {
-            const Icon = step.icon;
-            const isCompleted = currentStep > step.id;
-            const isActive = currentStep === step.id;
-            return (
-              <div
-                key={step.id}
-                className="flex items-center flex-1 last:flex-initial"
-              >
-                <div className="flex flex-col items-center">
-                  <div
-                    className={cn(
-                      'w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-300 text-sm font-bold',
-                      isCompleted
-                        ? 'bg-primary text-white shadow-[0_4px_12px_rgba(0,168,90,0.3)]'
-                        : isActive
-                        ? 'bg-primary text-white shadow-[0_4px_16px_rgba(0,168,90,0.35)] ring-4 ring-primary/20'
-                        : 'bg-dark-50 text-dark-400 border border-dark-200'
-                    )}
-                  >
-                    {isCompleted ? (
-                      <Check className="w-5 h-5" />
-                    ) : (
-                      <Icon className="w-5 h-5" />
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      'text-[10px] md:text-xs font-medium mt-2 transition-colors',
-                      isActive
-                        ? 'text-primary'
-                        : isCompleted
-                        ? 'text-dark-600'
-                        : 'text-dark-400'
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className="flex-1 mx-2 md:mx-3 h-0.5 rounded-full mt-[-18px] md:mt-[-20px]">
-                    <div
-                      className={cn(
-                        'h-full rounded-full transition-all duration-500',
-                        isCompleted ? 'bg-primary' : 'bg-dark-100'
-                      )}
-                    />
-                  </div>
-                )}
+            <div className="mb-8">
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
+                <Shield className="h-4 w-4" />
+                Digitaler Abmeldeservice
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── Step Content ── */}
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentStep}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.25 }}
-          >
-            {/* ── STEP 1: Fahrzeugdaten ── */}
-            {currentStep === 1 && (
-              <div className="space-y-6">
-                <div className="mb-2">
-                  <h2 className="text-2xl font-bold text-dark-900">
-                    Fahrzeugdaten
-                  </h2>
-                  <p className="text-dark-500 text-sm mt-1">
-                    Geben Sie das aktuelle Kennzeichen und die
-                    Fahrzeug-Identifizierungsnummer (FIN) ein.
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6 space-y-5">
-                  <KennzeichenInput
-                    value={watch('kennzeichen') || ''}
-                    onChange={(v) => setValue('kennzeichen', v, { shouldValidate: !!errors.kennzeichen })}
-                    error={errors.kennzeichen?.message}
-                  />
-
-                  <div>
-                    <label className="block text-sm font-semibold text-dark-800 mb-2">
-                      Fahrzeug-Identifizierungsnummer (FIN){' '}
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      {...register('fin')}
-                      placeholder="17-stellige Fahrgestellnummer"
-                      maxLength={17}
-                      className={cn(
-                        'input-field uppercase',
-                        errors.fin &&
-                          'border-red-400 focus:ring-red-400 focus:border-red-400'
-                      )}
-                    />
-                    {errors.fin && (
-                      <p className="text-red-500 text-sm mt-1">
-                        {errors.fin.message}
-                      </p>
-                    )}
-                    <p className="text-xs text-dark-400 mt-2">
-                      Die FIN finden Sie im Fahrzeugschein (Feld E) oder auf dem
-                      Typenschild des Fahrzeugs.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Reference image */}
-                <div className="rounded-2xl bg-dark-50 border border-dark-100 p-5">
-                  <p className="text-sm font-semibold text-dark-700 mb-3 flex items-center gap-2">
-                    <HelpCircle className="w-4 h-4 text-primary" />
-                    Wo finde ich die FIN?
-                  </p>
-                  <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-dark-200">
-                    <Image
-                      src="/uploads/2024/11/WhatsApp-Image-2024-01-06-at-3.21.48-PM.jpeg"
-                      alt="Fahrzeugschein mit markierter FIN"
-                      fill
-                      className="object-contain"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── STEP 2: Fahrzeugschein Sicherheitscode ── */}
-            {currentStep === 2 && (
-              <div className="space-y-6">
-                <div className="mb-2">
-                  <h2 className="text-2xl font-bold text-dark-900">
-                    Sicherheitscode Fahrzeugschein
-                  </h2>
-                  <p className="text-dark-500 text-sm mt-1">
-                    Den 7-stelligen Sicherheitscode finden Sie auf der Rückseite
-                    Ihres Fahrzeugscheins (Zulassungsbescheinigung Teil I).
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6">
-                  <label className="block text-sm font-semibold text-dark-800 mb-2">
-                    Sicherheitscode (7 Zeichen){' '}
-                    <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    {...register('sicherheitscode')}
-                    placeholder="z.B. AB12CD3"
-                    maxLength={7}
-                    className={cn(
-                      'input-field uppercase tracking-[0.3em] text-center text-lg font-mono',
-                      errors.sicherheitscode &&
-                        'border-red-400 focus:ring-red-400 focus:border-red-400'
-                    )}
-                  />
-                  {errors.sicherheitscode && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {errors.sicherheitscode.message}
-                    </p>
-                  )}
-                  <p className="text-xs text-dark-400 mt-2">
-                    Den Code finden Sie unter dem freizulegenden Bereich auf der
-                    Rückseite des Fahrzeugscheins.
-                  </p>
-                </div>
-
-                {/* Reference image */}
-                <button
-                  type="button"
-                  onClick={() => setShowCodeHelp(!showCodeHelp)}
-                  className="w-full text-left"
-                >
-                  <div className="rounded-2xl bg-dark-50 border border-dark-100 p-5">
-                    <p className="text-sm font-semibold text-dark-700 mb-3 flex items-center gap-2">
-                      <HelpCircle className="w-4 h-4 text-primary" />
-                      Wo finde ich den Sicherheitscode?{' '}
-                      <span className="text-xs text-primary">
-                        {showCodeHelp ? 'Ausblenden' : 'Anzeigen'}
-                      </span>
-                    </p>
-                    {showCodeHelp && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        className="space-y-3"
-                      >
-                        <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-dark-200">
-                          <Image
-                            src="/uploads/2024/11/SicherheitscodeZB2-e1736860037665.jpg"
-                            alt="Fahrzeugschein Rückseite mit markiertem Sicherheitscode"
-                            fill
-                            className="object-contain"
-                          />
-                        </div>
-                        <p className="text-xs text-dark-500">
-                          Kratzen Sie den verdeckten Bereich auf der Rückseite
-                          Ihres Fahrzeugscheins frei, um den 7-stelligen Code zu
-                          finden.
-                        </p>
-                      </motion.div>
-                    )}
-                  </div>
-                </button>
-
-                {/* YouTube reference (optional visual) */}
-                <div className="rounded-2xl bg-primary/[0.04] border border-primary/10 p-5">
-                  <p className="text-sm font-semibold text-dark-700 mb-2">
-                    📹 Video-Anleitung
-                  </p>
-                  <p className="text-xs text-dark-500">
-                    Schauen Sie sich unser Erklärvideo an, um den
-                    Sicherheitscode schnell zu finden.
-                  </p>
-                  <a
-                    href="https://www.youtube.com/watch?v=u38keaF1QKU"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 mt-3 text-sm text-primary font-semibold hover:underline"
-                  >
-                    Video ansehen →
-                  </a>
-                </div>
-              </div>
-            )}
-
-            {/* ── STEP 3: Kennzeichen Codes ── */}
-            {currentStep === 3 && (
-              <div className="space-y-6">
-                <div className="mb-2">
-                  <h2 className="text-2xl font-bold text-dark-900">
-                    Sicherheitscodes Kennzeichen
-                  </h2>
-                  <p className="text-dark-500 text-sm mt-1">
-                    Die 3-stelligen Codes finden Sie unter den Stempelplaketten
-                    auf Ihren Kennzeichen.
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6 space-y-5">
-                  <div>
-                    <label className="block text-sm font-semibold text-dark-800 mb-2">
-                      Stadt/Kreis der Zulassung{' '}
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      {...register('stadtKreis')}
-                      placeholder="z.B. Essen"
-                      className={cn(
-                        'input-field',
-                        errors.stadtKreis &&
-                          'border-red-400 focus:ring-red-400 focus:border-red-400'
-                      )}
-                    />
-                    {errors.stadtKreis && (
-                      <p className="text-red-500 text-sm mt-1">
-                        {errors.stadtKreis.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-dark-800 mb-2">
-                        Code Vorne (3 Zeichen){' '}
-                        <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        {...register('codeVorne')}
-                        placeholder="z.B. A1B"
-                        maxLength={3}
-                        className={cn(
-                          'input-field uppercase tracking-[0.3em] text-center font-mono',
-                          errors.codeVorne &&
-                            'border-red-400 focus:ring-red-400 focus:border-red-400'
-                        )}
-                      />
-                      {errors.codeVorne && (
-                        <p className="text-red-500 text-sm mt-1">
-                          {errors.codeVorne.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-dark-800 mb-2">
-                        Code Hinten (3 Zeichen){' '}
-                        <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        {...register('codeHinten')}
-                        placeholder="z.B. C2D"
-                        maxLength={3}
-                        className={cn(
-                          'input-field uppercase tracking-[0.3em] text-center font-mono',
-                          errors.codeHinten &&
-                            'border-red-400 focus:ring-red-400 focus:border-red-400'
-                        )}
-                      />
-                      {errors.codeHinten && (
-                        <p className="text-red-500 text-sm mt-1">
-                          {errors.codeHinten.message}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Reference image */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowKennzeichenHelp(!showKennzeichenHelp)
-                  }
-                  className="w-full text-left"
-                >
-                  <div className="rounded-2xl bg-dark-50 border border-dark-100 p-5">
-                    <p className="text-sm font-semibold text-dark-700 mb-3 flex items-center gap-2">
-                      <HelpCircle className="w-4 h-4 text-primary" />
-                      Wo finde ich die Kennzeichen-Codes?{' '}
-                      <span className="text-xs text-primary">
-                        {showKennzeichenHelp ? 'Ausblenden' : 'Anzeigen'}
-                      </span>
-                    </p>
-                    {showKennzeichenHelp && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        className="space-y-3"
-                      >
-                        <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-dark-200">
-                          <Image
-                            src="/uploads/2025/01/Kennzeichen-mit-QR-Code-800x800.webp"
-                            alt="Kennzeichen mit markierten Sicherheitscodes"
-                            fill
-                            sizes="(max-width: 768px) 100vw, 400px"
-                            className="object-contain"
-                          />
-                        </div>
-                        <p className="text-xs text-dark-500">
-                          Die 3-stelligen Codes befinden sich unter den
-                          Stempelplaketten auf der Vorder- und Rückseite Ihrer
-                          Kennzeichen.
-                        </p>
-                      </motion.div>
-                    )}
-                  </div>
-                </button>
-
-                {/* YouTube reference */}
-                <div className="rounded-2xl bg-primary/[0.04] border border-primary/10 p-5">
-                  <p className="text-sm font-semibold text-dark-700 mb-2">
-                    📹 Video-Anleitung
-                  </p>
-                  <p className="text-xs text-dark-500">
-                    In diesem Video zeigen wir Ihnen, wo Sie die Codes unter den
-                    Stempelplaketten finden.
-                  </p>
-                  <a
-                    href="https://www.youtube.com/watch?v=3nsdJSvKAtE"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 mt-3 text-sm text-primary font-semibold hover:underline"
-                  >
-                    Video ansehen →
-                  </a>
-                </div>
-
-                {/* Motorcycle note */}
-                <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
-                  <p className="text-xs text-amber-700">
-                    <strong>Hinweis für Motorräder und Anhänger:</strong> Wenn nur
-                    ein Kennzeichen vorhanden ist, geben Sie bitte denselben Code
-                    für vorne und hinten ein.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* ── STEP 4: Reservierung & Übersicht ── */}
-            {currentStep === 4 && (
-              <div className="space-y-6">
-                <div className="mb-2">
-                  <h2 className="text-2xl font-bold text-dark-900">
-                    Kennzeichenreservierung
-                  </h2>
-                  <p className="text-dark-500 text-sm mt-1">
-                    Optional: Möchten Sie Ihr aktuelles Kennzeichen für ein Jahr
-                    reservieren lassen?
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm p-6">
-                  <label className="block text-sm font-semibold text-dark-800 mb-3">
-                    Kennzeichen reservieren?
-                  </label>
-                  <div className="space-y-3">
-                    <label
-                      className={cn(
-                        'flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all duration-200',
-                        watchReservierung === 'keine'
-                          ? 'border-primary bg-primary/[0.04] shadow-sm'
-                          : 'border-dark-100 hover:border-dark-200 hover:bg-dark-50/50'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          value="keine"
-                          {...register('reservierung')}
-                          className="accent-primary w-4 h-4"
-                        />
-                        <div>
-                          <span className="font-semibold text-dark-800 text-sm">
-                            Keine Reservierung
-                          </span>
-                          <p className="text-xs text-dark-400 mt-0.5">
-                            Das Kennzeichen wird freigegeben
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-dark-400 text-sm">Inklusive</span>
-                    </label>
-                    <label
-                      className={cn(
-                        'flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all duration-200',
-                        watchReservierung === 'einJahr'
-                          ? 'border-primary bg-primary/[0.04] shadow-sm'
-                          : 'border-dark-100 hover:border-dark-200 hover:bg-dark-50/50'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          value="einJahr"
-                          {...register('reservierung')}
-                          className="accent-primary w-4 h-4"
-                        />
-                        <div>
-                          <span className="font-semibold text-dark-800 text-sm">
-                            Kennzeichen für 1 Jahr reservieren
-                          </span>
-                          <p className="text-xs text-dark-400 mt-0.5">
-                            Ihr Kennzeichen wird für 12 Monate reserviert
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-primary font-bold text-sm">
-                        + {reservierungPrice.toFixed(2).replace('.', ',')} €
-                      </span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Summary / Price overview */}
-                <div className="rounded-2xl bg-white border border-dark-100 shadow-sm divide-y divide-dark-100">
-                  <div className="p-5">
-                    <h3 className="font-bold text-dark-800 mb-3">
-                      Ihre Angaben
-                    </h3>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-dark-500">Kennzeichen</span>
-                        <span className="text-dark-800 font-medium uppercase">
-                          {getValues('kennzeichen') || '–'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-dark-500">FIN</span>
-                        <span className="text-dark-800 font-medium uppercase">
-                          {getValues('fin') || '–'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-dark-500">
-                          Sicherheitscode ZB I
-                        </span>
-                        <span className="text-dark-800 font-medium uppercase">
-                          {getValues('sicherheitscode') || '–'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-dark-500">Stadt/Kreis</span>
-                        <span className="text-dark-800 font-medium">
-                          {getValues('stadtKreis') || '–'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-dark-500">
-                          Codes (vorne/hinten)
-                        </span>
-                        <span className="text-dark-800 font-medium uppercase">
-                          {getValues('codeVorne') || '–'} /{' '}
-                          {getValues('codeHinten') || '–'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Price summary */}
-                <div className="rounded-2xl bg-primary/[0.04] border-2 border-primary/20 p-6">
-                  <h3 className="font-bold text-dark-800 mb-4">
-                    Kostenübersicht
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-dark-600">{productName}</span>
-                      <span className="text-dark-800 font-medium">
-                        {liveBasePrice.toFixed(2).replace('.', ',')} €
-                      </span>
-                    </div>
-                    {watchReservierung === 'einJahr' && (
-                      <div className="flex justify-between">
-                        <span className="text-dark-600">
-                          Kennzeichenreservierung (1 Jahr)
-                        </span>
-                        <span className="text-dark-800 font-medium">
-                          {reservierungPrice.toFixed(2).replace('.', ',')} €
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t border-primary/20">
-                    <span className="text-lg font-bold text-dark-900">
-                      Gesamtpreis
-                    </span>
-                    <span className="text-2xl font-black text-primary">
-                      {totalPrice.toFixed(2).replace('.', ',')} €
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-
-        {/* ── Navigation Buttons ── */}
-        <div className="flex items-center justify-between mt-8 pt-6 border-t border-dark-100">
-          {currentStep > 1 ? (
-            <button
-              type="button"
-              onClick={prevStep}
-              className="btn-secondary py-3 px-6"
-            >
-              <ArrowLeft className="w-4 h-4" /> Zurück
-            </button>
-          ) : (
-            <div />
-          )}
-
-          {currentStep < 4 && (
-            <div className="hidden md:flex items-center gap-2 text-sm">
-              <span className="text-dark-400">Aktueller Preis:</span>
-              <span className="font-bold text-primary text-lg">
-                {totalPrice.toFixed(2).replace('.', ',')} €
-              </span>
+              <h1 className="mt-4 text-2xl font-black text-white md:text-4xl">
+                Fahrzeug online abmelden
+              </h1>
+              <p className="mt-2 text-sm text-zinc-400 md:text-base">
+                Einfach, sicher und Schritt für Schritt.
+              </p>
             </div>
-          )}
 
-          {currentStep < 4 ? (
-            <button
-              key="next-step"
-              type="button"
-              onClick={nextStep}
-              className="btn-primary py-3 px-8"
-            >
-              Weiter <ArrowRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <button key="submit-order" type="submit" className="btn-primary py-3 px-8">
-              Weiter zur Kasse <ArrowRight className="w-4 h-4" />
-            </button>
-          )}
+            <div className="mb-8 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
+              <div className="flex items-center justify-between gap-2 overflow-x-auto">
+                {STEPS.map((step, i) => {
+                  const Icon = step.icon;
+                  const isCompleted = currentStep > step.id;
+                  const isActive = currentStep === step.id;
+
+                  return (
+                    <div
+                      key={step.id}
+                      className="flex min-w-max flex-1 items-center last:flex-initial"
+                    >
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={cn(
+                            'flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold transition-all md:h-12 md:w-12',
+                            isCompleted
+                              ? 'border-emerald-400 bg-emerald-500 text-white'
+                              : isActive
+                              ? 'border-emerald-400 bg-emerald-500/10 text-emerald-400 shadow-[0_0_0_6px_rgba(16,185,129,0.12)]'
+                              : 'border-white/10 bg-white/[0.04] text-zinc-500'
+                          )}
+                        >
+                          {isCompleted ? (
+                            <Check className="h-5 w-5" />
+                          ) : (
+                            <Icon className="h-5 w-5" />
+                          )}
+                        </div>
+                        <span
+                          className={cn(
+                            'mt-2 text-[10px] font-medium md:text-xs',
+                            isActive
+                              ? 'text-emerald-400'
+                              : isCompleted
+                              ? 'text-zinc-200'
+                              : 'text-zinc-500'
+                          )}
+                        >
+                          {step.label}
+                        </span>
+                      </div>
+
+                      {i < STEPS.length - 1 && (
+                        <div className="mx-2 h-px flex-1 bg-white/10 md:mx-3">
+                          <div
+                            className={cn(
+                              'h-px transition-all duration-300',
+                              isCompleted ? 'w-full bg-emerald-400' : 'w-0 bg-transparent'
+                            )}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit(onSubmit)}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentStep}
+                  initial={{ opacity: 0, x: 18 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -18 }}
+                  transition={{ duration: 0.22 }}
+                >
+                  {currentStep === 1 && (
+                    <div className="space-y-6">
+                      <div>
+                        <div className="text-sm font-semibold text-emerald-400">
+                          Schritt 1 von 4
+                        </div>
+                        <h2 className="mt-1 text-2xl font-black text-white">
+                          Kennzeichen und FIN
+                        </h2>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                        <h3 className="mb-4 text-base font-bold text-white">
+                          Fahrzeugtyp wählen
+                        </h3>
+
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          {[
+                            { value: 'auto', label: 'Auto', icon: Car },
+                            { value: 'motorrad', label: 'Motorrad', icon: Bike },
+                            { value: 'anhaenger', label: 'Anhänger', icon: Truck },
+                            { value: 'leichtkraftrad', label: 'Leichtkraftrad', icon: Bike },
+                            { value: 'lkw', label: 'LKW', icon: Truck },
+                            { value: 'andere', label: 'Andere', icon: CircleHelp },
+                          ].map((item) => {
+                            const Icon = item.icon;
+                            const active = watchVehicleType === item.value;
+
+                            return (
+                              <label
+                                key={item.value}
+                                className={cn(
+                                  'cursor-pointer rounded-2xl border p-4 transition-all',
+                                  active
+                                    ? 'border-emerald-400 bg-emerald-500/10'
+                                    : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+                                )}
+                              >
+                                <input
+                                  type="radio"
+                                  className="hidden"
+                                  value={item.value}
+                                  {...register('vehicleType')}
+                                />
+                                <div className="flex flex-col items-center justify-center gap-3 text-center">
+                                  <div
+                                    className={cn(
+                                      'rounded-2xl p-3',
+                                      active ? 'bg-emerald-500/15' : 'bg-white/[0.04]'
+                                    )}
+                                  >
+                                    <Icon
+                                      className={cn(
+                                        'h-7 w-7',
+                                        active ? 'text-emerald-400' : 'text-zinc-400'
+                                      )}
+                                    />
+                                  </div>
+                                  <span
+                                    className={cn(
+                                      'text-sm font-bold',
+                                      active ? 'text-white' : 'text-zinc-300'
+                                    )}
+                                  >
+                                    {item.label}
+                                  </span>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                        <h3 className="mb-4 text-base font-bold text-white">
+                          Wie möchten Sie die Daten eingeben?
+                        </h3>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {[
+                            ['manuell', 'Daten manuell eingeben'],
+                            ['bilder', 'Bilder hochladen'],
+                          ].map(([value, label]) => (
+                            <label
+                              key={value}
+                              className={cn(
+                                'cursor-pointer rounded-2xl border p-4 text-sm font-semibold transition-all',
+                                watchInputMode === value
+                                  ? 'border-emerald-400 bg-emerald-500/10 text-white'
+                                  : 'border-white/10 bg-white/[0.02] text-zinc-300 hover:border-white/20'
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                className="hidden"
+                                value={value}
+                                {...register('inputMode')}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                        <div className="space-y-5">
+                          <div>
+                            <label className="mb-2 block text-sm font-semibold text-white">
+                              Kennzeichen eintragen <span className="text-red-400">*</span>
+                            </label>
+
+                            <KennzeichenInput
+                              value={watch('kennzeichen') || ''}
+                              onChange={(v) =>
+                                setValue('kennzeichen', (v || '').toUpperCase(), {
+                                  shouldValidate: !!errors.kennzeichen,
+                                })
+                              }
+                              error={errors.kennzeichen?.message}
+                            />
+
+                            <p className="mt-2 text-xs text-zinc-400">
+                              Bei E-, H- oder Saisonkennzeichen bitte nur das normale
+                              Kennzeichen eintragen.
+                            </p>
+                          </div>
+
+                          {watchInputMode === 'manuell' ? (
+                            <div>
+                              <label className="mb-2 block text-sm font-semibold text-white">
+                                Fahrzeug-Identnummer (FIN){' '}
+                                <span className="text-red-400">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                {...register('fin', {
+                                  onChange: (e) => {
+                                    e.target.value = e.target.value.toUpperCase();
+                                  },
+                                })}
+                                placeholder="WBA71AUU805U1111"
+                                maxLength={17}
+                                className={cn(
+                                  'w-full rounded-2xl border bg-white/[0.04] px-4 py-3 text-white outline-none transition placeholder:text-zinc-500',
+                                  errors.fin
+                                    ? 'border-red-400 focus:border-red-400'
+                                    : 'border-white/10 focus:border-emerald-400'
+                                )}
+                              />
+                              {errors.fin && (
+                                <p className="mt-1 text-sm text-red-400">
+                                  {errors.fin.message}
+                                </p>
+                              )}
+                              <p className="mt-2 text-xs text-zinc-400">
+                                Die FIN steht im Fahrzeugschein in Feld E. Siehe Bild.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                              Bitte senden Sie uns ein Foto vom Fahrzeugschein Vorderseite.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {watchInputMode === 'bilder' ? (
+                        <MediaHelpCard
+                          title="Beispiel Fahrzeugschein Vorderseite"
+                          videoUrl={SCHEIN_VIDEO_URL}
+                          imageUrl={TEIL1_VORDERSEITE_IMAGE}
+                          imageAlt="Beispiel Fahrzeugschein Vorderseite"
+                        />
+                      ) : (
+                        <MediaHelpCard
+                          title="Wo finde ich die FIN?"
+                          videoUrl={SCHEIN_VIDEO_URL}
+                          imageUrl={TEIL1_VORDERSEITE_IMAGE}
+                          imageAlt="Fahrzeugschein Vorderseite mit FIN"
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {currentStep === 2 && (
+                    <div className="space-y-6">
+                      <div>
+                        <div className="text-sm font-semibold text-emerald-400">
+                          Schritt 2 von 4
+                        </div>
+                        <h2 className="mt-1 text-2xl font-black text-white">
+                          Code vom Fahrzeugschein
+                        </h2>
+                      </div>
+
+                      <div className="rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5">
+                        <div className="text-sm font-semibold text-amber-100">
+                          Code vom Fahrzeugschein
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-amber-50">
+                          Bitte achten Sie auf die genaue Schreibweise. Der Code befindet
+                          sich auf der Rückseite des Fahrzeugscheins unter dem
+                          freizulegenden Bereich.
+                        </p>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 space-y-5">
+                        {watchInputMode === 'manuell' ? (
+                          <div>
+                            <label className="mb-2 block text-sm font-semibold text-white">
+                              Code vom Fahrzeugschein <span className="text-red-400">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              {...register('sicherheitscode')}
+                              placeholder="z. B. aB12cd3"
+                              maxLength={7}
+                              className={cn(
+                                'w-full rounded-2xl border bg-white/[0.04] px-4 py-3 text-white outline-none transition placeholder:text-zinc-500',
+                                errors.sicherheitscode
+                                  ? 'border-red-400 focus:border-red-400'
+                                  : 'border-white/10 focus:border-emerald-400'
+                              )}
+                            />
+                            {errors.sicherheitscode && (
+                              <p className="mt-1 text-sm text-red-400">
+                                {errors.sicherheitscode.message}
+                              </p>
+                            )}
+                            <p className="mt-2 text-xs text-zinc-400">
+                              Bitte Groß- und Kleinschreibung genau übernehmen.
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                              Bitte senden Sie uns ein Foto von der Rückseite vom
+                              Fahrzeugschein. Den Sicherheitscode bitte vorher freilegen.
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div>
+                                <FileUploadBox
+                                  title="Fahrzeugschein Vorderseite"
+                                  subtitle="Bitte Vorderseite hochladen"
+                                  required
+                                  file={uploads.teil1Vorne}
+                                  onChange={(file) => setUpload('teil1Vorne', file)}
+                                />
+                                {uploadErrors.teil1Vorne && (
+                                  <p className="mt-2 text-sm text-red-400">
+                                    {uploadErrors.teil1Vorne}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div>
+                                <FileUploadBox
+                                  title="Fahrzeugschein Rückseite / Sicherheitscode"
+                                  subtitle="Bitte den Bereich mit dem Sicherheitscode hochladen"
+                                  required
+                                  file={uploads.teil1Hinten}
+                                  onChange={(file) => setUpload('teil1Hinten', file)}
+                                />
+                                {uploadErrors.teil1Hinten && (
+                                  <p className="mt-2 text-sm text-red-400">
+                                    {uploadErrors.teil1Hinten}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        <div>
+                          <label className="mb-2 block text-sm font-semibold text-white">
+                            Stadt / Kreis <span className="text-red-400">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            {...register('stadtKreis')}
+                            placeholder="z. B. Essen"
+                            className={cn(
+                              'w-full rounded-2xl border bg-white/[0.04] px-4 py-3 text-white outline-none transition placeholder:text-zinc-500',
+                              errors.stadtKreis
+                                ? 'border-red-400 focus:border-red-400'
+                                : 'border-white/10 focus:border-emerald-400'
+                            )}
+                          />
+                          {errors.stadtKreis && (
+                            <p className="mt-1 text-sm text-red-400">
+                              {errors.stadtKreis.message}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
+                        <button
+                          type="button"
+                          onClick={() => setShowCodeHelp((v) => !v)}
+                          className="flex w-full items-center justify-between border-b border-white/10 px-5 py-4 text-left"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-white">
+                            <HelpCircle className="h-4 w-4 text-emerald-400" />
+                            Anleitung zum Freilegen des Codes
+                          </span>
+                          <span className="text-xs font-semibold text-emerald-400">
+                            {showCodeHelp ? 'Ausblenden' : 'Anzeigen'}
+                          </span>
+                        </button>
+
+                        {showCodeHelp && (
+                          <div className="p-5">
+                            <a
+                              href={SCHEIN_VIDEO_URL}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mb-4 inline-flex items-center gap-2 rounded-2xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-400 hover:bg-emerald-500/15"
+                            >
+                              <PlayCircle className="h-4 w-4" />
+                              Video-Anleitung ansehen
+                            </a>
+
+                            <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-white">
+                              <Image
+                                src={TEIL1_RUECKSEITE_IMAGE}
+                                alt="Sicherheitscode auf der Rückseite vom Fahrzeugschein"
+                                fill
+                                sizes="(max-width: 768px) 100vw, 900px"
+                                className="object-contain"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {currentStep === 3 && (
+                    <div className="space-y-6">
+                      <div>
+                        <div className="text-sm font-semibold text-emerald-400">
+                          Schritt 3 von 4
+                        </div>
+                        <h2 className="mt-1 text-2xl font-black text-white">
+                          Codes vom Kennzeichen
+                        </h2>
+                      </div>
+
+                      <div className="rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5">
+                        <div className="text-sm font-semibold text-amber-100">
+                          3-stelliger Code vom Kennzeichen
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-amber-50">
+                          Entfernen Sie die Plakette vorsichtig, um den 3-stelligen Code
+                          freizulegen. Achten Sie auf die genaue Schreibweise.
+                        </p>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                        {watchInputMode === 'manuell' ? (
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {!onePlateVehicle && (
+                              <div>
+                                <label className="mb-2 block text-sm font-semibold text-white">
+                                  Code vom vorderen Kennzeichen{' '}
+                                  <span className="text-red-400">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  {...register('codeVorne')}
+                                  placeholder="z. B. ja4"
+                                  maxLength={3}
+                                  className={cn(
+                                    'w-full rounded-2xl border bg-white/[0.04] px-4 py-3 text-white outline-none transition placeholder:text-zinc-500',
+                                    errors.codeVorne
+                                      ? 'border-red-400 focus:border-red-400'
+                                      : 'border-white/10 focus:border-emerald-400'
+                                  )}
+                                />
+                                {errors.codeVorne && (
+                                  <p className="mt-1 text-sm text-red-400">
+                                    {errors.codeVorne.message}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="mb-2 block text-sm font-semibold text-white">
+                                {onePlateVehicle
+                                  ? 'Code vom Kennzeichen'
+                                  : 'Code vom hinteren Kennzeichen'}{' '}
+                                <span className="text-red-400">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                {...register('codeHinten')}
+                                placeholder="z. B. a1B"
+                                maxLength={3}
+                                className={cn(
+                                  'w-full rounded-2xl border bg-white/[0.04] px-4 py-3 text-white outline-none transition placeholder:text-zinc-500',
+                                  errors.codeHinten
+                                    ? 'border-red-400 focus:border-red-400'
+                                    : 'border-white/10 focus:border-emerald-400'
+                                )}
+                              />
+                              {errors.codeHinten && (
+                                <p className="mt-1 text-sm text-red-400">
+                                  {errors.codeHinten.message}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                              {onePlateVehicle
+                                ? 'Bitte laden Sie das Bild vom Kennzeichen mit freigelegtem Code hoch.'
+                                : 'Bitte laden Sie die Bilder von den Kennzeichen mit freigelegtem Code hoch.'}
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                              {!onePlateVehicle && (
+                                <div>
+                                  <FileUploadBox
+                                    title="Bild vom vorderen Kennzeichen"
+                                    subtitle="Bitte den Bereich mit der Plakette hochladen"
+                                    required
+                                    file={uploads.kennzeichenVorne}
+                                    onChange={(file) => setUpload('kennzeichenVorne', file)}
+                                  />
+                                  {uploadErrors.kennzeichenVorne && (
+                                    <p className="mt-2 text-sm text-red-400">
+                                      {uploadErrors.kennzeichenVorne}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
+                              <div>
+                                <FileUploadBox
+                                  title={
+                                    onePlateVehicle
+                                      ? 'Bild vom Kennzeichen'
+                                      : 'Bild vom hinteren Kennzeichen'
+                                  }
+                                  subtitle="Bitte den Bereich mit der Plakette hochladen"
+                                  required
+                                  file={uploads.kennzeichenHinten}
+                                  onChange={(file) => setUpload('kennzeichenHinten', file)}
+                                />
+                                {uploadErrors.kennzeichenHinten && (
+                                  <p className="mt-2 text-sm text-red-400">
+                                    {uploadErrors.kennzeichenHinten}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
+                        <button
+                          type="button"
+                          onClick={() => setShowKennzeichenHelp((v) => !v)}
+                          className="flex w-full items-center justify-between border-b border-white/10 px-5 py-4 text-left"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-white">
+                            <HelpCircle className="h-4 w-4 text-emerald-400" />
+                            Anleitung zum Entfernen der Plakette
+                          </span>
+                          <span className="text-xs font-semibold text-emerald-400">
+                            {showKennzeichenHelp ? 'Ausblenden' : 'Anzeigen'}
+                          </span>
+                        </button>
+
+                        {showKennzeichenHelp && (
+                          <div className="p-5">
+                            <a
+                              href={KENNZEICHEN_VIDEO_URL}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mb-4 inline-flex items-center gap-2 rounded-2xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-400 hover:bg-emerald-500/15"
+                            >
+                              <PlayCircle className="h-4 w-4" />
+                              Video-Anleitung ansehen
+                            </a>
+
+                            <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-white">
+                              <Image
+                                src={KENNZEICHEN_CODE_IMAGE}
+                                alt="Kennzeichen Sicherheitscode freilegen"
+                                fill
+                                sizes="(max-width: 768px) 100vw, 900px"
+                                className="object-contain"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {currentStep === 4 && (
+                    <div className="space-y-6">
+                      <div>
+                        <div className="text-sm font-semibold text-emerald-400">
+                          Schritt 4 von 4
+                        </div>
+                        <h2 className="mt-1 text-2xl font-black text-white">
+                          Reservierung wählen
+                        </h2>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                        <label className="mb-4 block text-sm font-semibold text-white">
+                          Kennzeichen reservieren?
+                        </label>
+
+                        <div className="space-y-3">
+                          <label
+                            className={cn(
+                              'flex cursor-pointer items-center justify-between rounded-2xl border p-4 transition-all',
+                              watchReservierung === 'keine'
+                                ? 'border-emerald-400 bg-emerald-500/10'
+                                : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="radio"
+                                value="keine"
+                                {...register('reservierung')}
+                                className="accent-emerald-500"
+                              />
+                              <div>
+                                <span className="text-sm font-semibold text-white">
+                                  Keine Kennzeichenreservierung
+                                </span>
+                              </div>
+                            </div>
+                          </label>
+
+                          <label
+                            className={cn(
+                              'flex cursor-pointer items-center justify-between rounded-2xl border p-4 transition-all',
+                              watchReservierung === 'einJahr'
+                                ? 'border-emerald-400 bg-emerald-500/10'
+                                : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="radio"
+                                value="einJahr"
+                                {...register('reservierung')}
+                                className="accent-emerald-500"
+                              />
+                              <div>
+                                <span className="text-sm font-semibold text-white">
+                                  1 Jahr reservieren
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-sm font-bold text-emerald-400">
+                              + {formatPrice(reservierungPrice)}
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-lg font-bold text-white">Endbetrag</span>
+                          <span className="text-3xl font-black text-emerald-400">
+                            {formatPrice(totalPrice)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-emerald-100">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Wenn Sie Fragen haben
+                        </div>
+
+                        <div className="flex flex-col gap-3 sm:flex-row">
+                          <a
+                            href="tel:015224999190"
+                            className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white px-4 py-3 text-sm font-bold text-[#0b1120] hover:opacity-90"
+                          >
+                            01522 4999190
+                          </a>
+                          <a
+                            href="https://wa.me/4915224999190"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-400"
+                          >
+                            Live-Chat über WhatsApp
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+
+              <div className="mt-8 border-t border-white/10 pt-6">
+                <div className="mb-6 flex flex-wrap items-center justify-center gap-6 text-xs text-zinc-500">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-emerald-400" />
+                    SSL verschlüsselt
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    Sichere Zahlung
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    Sichere Abwicklung
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  {currentStep > 1 ? (
+                    <button
+                      type="button"
+                      onClick={prevStep}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-white transition hover:bg-white/[0.08]"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Zurück
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+
+                  {currentStep < 4 ? (
+                    <button
+                      type="button"
+                      onClick={nextStep}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-400"
+                    >
+                      Weiter
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-400"
+                    >
+                      Zur Kasse
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
-      </form>
+      </div>
     </div>
   );
 }
