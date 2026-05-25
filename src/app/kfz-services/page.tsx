@@ -67,39 +67,23 @@ const servicesMeta = [
 ];
 
 export default async function KfzServicesPage() {
-  // Fetch live prices from DB, with safe fallback for local builds
-let anmeldenMinPrice = 124.70;
-let ummeldungPrice = 119.70;
-let abmeldungPrice = 19.70;
-
-try {
+  // Fetch live prices from DB
   const [anmeldenProduct, abmeldungProduct] = await Promise.all([
     getProductBySlug('auto-online-anmelden'),
     getProductBySlug('fahrzeugabmeldung'),
   ]);
 
-  const anmeldenOpts = anmeldenProduct?.options
-    ? JSON.parse(anmeldenProduct.options)
-    : {};
+  const anmeldenOpts = anmeldenProduct?.options ? JSON.parse(anmeldenProduct.options) : {};
+  const anmeldenServices: Array<{ key: string; label: string; price: number }> = anmeldenOpts.services ?? [];
 
-  const anmeldenServices: Array<{ key?: string; label?: string; price: number }> =
-    anmeldenOpts.services ?? [];
-
-  anmeldenMinPrice = anmeldenServices.length
+  const anmeldenMinPrice = anmeldenServices.length
     ? Math.min(...anmeldenServices.map((s) => s.price))
-    : anmeldenProduct?.price ?? 124.70;
+    : (anmeldenProduct?.price ?? 99.70);
+  const ummeldungService = anmeldenServices.find((s) => s.key === 'ummeldung');
+  const ummeldungPrice = ummeldungService?.price ?? anmeldenProduct?.price ?? 119.70;
+  const abmeldungPrice = abmeldungProduct?.price ?? 19.70;
 
-  const ummeldungService = anmeldenServices.find((s) =>
-    String(s.key || s.label || '').toLowerCase().includes('ummeld')
-  );
-
-  ummeldungPrice = ummeldungService?.price ?? 119.70;
-  abmeldungPrice = abmeldungProduct?.price ?? 19.70;
-} catch {
-  // Local Codespace has no production database. Use fixed fallback prices.
-}
-
-const fmt = (n: number) => n.toFixed(2).replace('.', ',');
+  const fmt = (n: number) => n.toFixed(2).replace('.', ',');
 
   const services = servicesMeta.map((s) => ({
     ...s,
