@@ -91,7 +91,7 @@ export default function AutoAnmeldenPage() {
                 />
               </div>
               <div className="flex flex-wrap gap-4 items-center">
-                <Link href="/kfz-service/kfz-online-service/" className="btn-primary text-lg">
+                <Link href="/product/auto-online-anmelden/" className="btn-primary text-lg">
                   Jetzt online starten <ArrowRight className="w-5 h-5" />
                 </Link>
               </div>
@@ -176,7 +176,7 @@ export default function AutoAnmeldenPage() {
 
             <ScrollReveal delay={0.15}>
               <div className="mt-10 text-center">
-                <Link href="/kfz-service/kfz-online-service/" className="btn-primary text-lg">
+                <Link href="/product/auto-online-anmelden/" className="btn-primary text-lg">
                   JETZT AUTO ONLINE ANMELDEN <ArrowRight className="w-5 h-5" />
                 </Link>
               </div>
@@ -352,7 +352,7 @@ export default function AutoAnmeldenPage() {
               Starten Sie jetzt und sparen Sie sich den Weg zur Zulassungsstelle.
             </p>
             <div className="flex flex-wrap gap-4 justify-center">
-              <Link href="/kfz-service/kfz-online-service/" className="btn-primary text-lg">
+              <Link href="/product/auto-online-anmelden/" className="btn-primary text-lg">
                 JETZT AUTO ONLINE ANMELDEN <ArrowRight className="w-5 h-5" />
               </Link>
               <Link href="/evb/" className="btn-outline-white">

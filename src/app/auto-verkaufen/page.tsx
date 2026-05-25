@@ -23,9 +23,9 @@ const features = [
 ];
 
 const services = [
-  { icon: FileX, title: 'KFZ online abmelden', desc: 'Schnell und ohne Behördengänge', href: '/kfz-service/kfz-online-service/', cta: 'Jetzt KFZ online abmelden' },
-  { icon: Car, title: 'KFZ online anmelden', desc: 'Einfach und sicher online erledigen', href: '/kfz-service/kfz-online-service/', cta: 'Jetzt KFZ Online Anmelden' },
-  { icon: Repeat, title: 'KFZ online ummelden', desc: 'Ohne Stress in wenigen Minuten.', href: '/kfz-service/kfz-online-service/', cta: 'Jetzt Online KFZ ummelden' },
+  { icon: FileX, title: 'KFZ online abmelden', desc: 'Schnell und ohne Behördengänge', href: '/product/fahrzeugabmeldung/', cta: 'Jetzt KFZ online abmelden' },
+  { icon: Car, title: 'KFZ online anmelden', desc: 'Einfach und sicher online erledigen', href: '/product/auto-online-anmelden/', cta: 'Jetzt KFZ Online Anmelden' },
+  { icon: Repeat, title: 'KFZ online ummelden', desc: 'Ohne Stress in wenigen Minuten.', href: '/product/auto-online-anmelden/', cta: 'Jetzt Online KFZ ummelden' },
   { icon: ShieldCheck, title: 'eVB-Nummer', desc: 'Sofort online für Ihre Zulassung!', href: '/evb/', cta: 'Jetzt eVB-Nummer erhalten' },
   { icon: Banknote, title: 'Auto Verkaufen', desc: 'Kostenlose Bewertung Anfordern', href: '#formular', cta: 'Jetzt Auto Verkaufen' },
 ];
@@ -151,10 +151,10 @@ export default async function AutoVerkaufenPage() {
                 Top-Preis sichern – stressfrei, sicher und unkompliziert. Wir kaufen alle Marken und Modelle.
               </p>
               <div className="flex flex-wrap gap-4">
-                <Link href="/kfz-service/kfz-online-service/" className="btn-primary text-lg">
+                <Link href="/product/auto-online-anmelden/" className="btn-primary text-lg">
                   KFZ anmelden <ArrowRight className="w-5 h-5" />
                 </Link>
-                <Link href="/kfz-service/kfz-online-service/" className="btn-outline-white">
+                <Link href="/product/fahrzeugabmeldung/" className="btn-outline-white">
                   KFZ abmelden
                 </Link>
               </div>
@@ -599,10 +599,10 @@ export default async function AutoVerkaufenPage() {
               Starten Sie noch heute und profitieren Sie von unserem erstklassigen Service. Geben Sie einfach Ihre Fahrzeugdaten ein und lassen Sie uns den Rest erledigen. Sicher, schnell und kostenlos!
             </p>
             <div className="flex flex-wrap gap-4 justify-center">
-              <Link href="/kfz-service/kfz-online-service/" className="btn-primary text-lg">
+              <Link href="/product/auto-online-anmelden/" className="btn-primary text-lg">
                 KFZ online anmelden <ArrowRight className="w-5 h-5" />
               </Link>
-              <Link href="/kfz-service/kfz-online-service/" className="btn-outline-white">
+              <Link href="/product/fahrzeugabmeldung/" className="btn-outline-white">
                 Online KFZ abmelden
               </Link>
               <Link href="/evb/" className="btn-outline-white">
